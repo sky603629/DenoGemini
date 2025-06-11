@@ -1,43 +1,62 @@
-# Deno Deploy 部署指南
+# 🚀 Deno Deploy 部署指南
 
-本项目专为 Deno Deploy 平台设计，提供简单快速的部署方式。
+## 📋 部署概述
 
-## 部署到 Deno Deploy
+本项目支持**渐进式部署**：
+1. ✅ 先部署成功（无需环境变量）
+2. ⚙️ 后配置密钥（通过 Deno Deploy 控制台）
+3. 🎉 完整功能可用
 
-### 1. 准备工作
+## 🔧 部署步骤
 
-1. 注册 [Deno Deploy](https://deno.com/deploy) 账户
-2. 获取 Gemini API 密钥：
-   - 访问 [Google AI Studio](https://makersuite.google.com/app/apikey)
-   - 创建新的 API 密钥
-   - 建议创建多个密钥以实现负载均衡
+### 步骤 1: 初始部署
 
-### 2. 部署步骤
+1. 访问 [Deno Deploy](https://dash.deno.com/)
+2. 创建新项目
+3. 连接您的 GitHub 仓库
+4. 设置入口文件为 `main.ts`
+5. 点击部署
 
-#### 方法一：通过 GitHub 连接（推荐）
+**此时服务会成功启动，但显示需要配置状态**
 
-1. 将代码推送到 GitHub 仓库
-2. 在 Deno Deploy 控制台中：
-   - 点击 "New Project"
-   - 选择 "Deploy from GitHub"
-   - 连接您的 GitHub 账户
-   - 选择包含此代码的仓库
-   - 设置入口文件为 `main.ts`
+### 步骤 2: 检查部署状态
 
-#### 方法二：直接上传
-
-1. 在 Deno Deploy 控制台中：
-   - 点击 "New Project"
-   - 选择 "Deploy from local files"
-   - 上传所有项目文件
-   - 设置入口文件为 `main.ts`
-
-### 3. 环境变量配置
-
-在 Deno Deploy 项目设置中添加以下环境变量：
-
+访问您的部署URL根路径：
+```bash
+curl https://your-project.deno.dev/
 ```
-GEMINI_API_KEYS=your_key_1,your_key_2,your_key_3
+
+**未配置时的响应：**
+```json
+{
+  "message": "Gemini到OpenAI兼容API服务器",
+  "version": "1.0.0",
+  "status": "needs_configuration",
+  "configuration": {
+    "configured": false,
+    "missingKeys": ["GEMINI_API_KEYS", "ACCESS_KEYS"],
+    "instructions": "请在Deno Deploy环境变量中设置缺失的密钥"
+  }
+}
+```
+
+### 步骤 3: 配置环境变量
+
+在 Deno Deploy 控制台中添加以下环境变量：
+
+#### 🔑 必需的环境变量
+
+```bash
+# Gemini API 密钥（必需）
+GEMINI_API_KEYS=your_gemini_api_key_1,your_gemini_api_key_2
+
+# 准入密码（必需）
+ACCESS_KEYS=your_access_password_1,your_access_password_2
+```
+
+#### ⚙️ 可选的环境变量（已有默认值）
+
+```bash
 PORT=8000
 CORS_ORIGIN=*
 LOG_LEVEL=info
@@ -45,128 +64,173 @@ MAX_RETRIES=3
 REQUEST_TIMEOUT=30000
 ```
 
-**重要说明：**
-- `GEMINI_API_KEYS`: 必需，多个密钥用逗号分隔
-- `PORT`: Deno Deploy 会自动设置，通常不需要手动配置
-- 其他变量为可选，有默认值
+### 步骤 4: 验证配置
 
-### 4. 验证部署
+添加环境变量后，服务会自动重新部署。再次检查状态：
 
-部署完成后，您的 API 将在 `https://your-project.deno.dev` 可用。
-
-测试端点：
 ```bash
-# 获取可用模型
-curl https://your-project.deno.dev/v1/models
+curl https://your-project.deno.dev/
+```
 
-# 测试聊天补全
+**配置完成时的响应：**
+```json
+{
+  "message": "Gemini到OpenAI兼容API服务器",
+  "version": "1.0.0",
+  "status": "ready",
+  "configuration": {
+    "configured": true,
+    "missingKeys": [],
+    "instructions": null
+  }
+}
+```
+
+## 🔐 获取密钥
+
+### Gemini API 密钥
+
+1. 访问 [Google AI Studio](https://aistudio.google.com/app/apikey)
+2. 创建新的 API 密钥
+3. 复制密钥（格式：`AIzaSy...`）
+4. 建议创建多个密钥实现负载均衡
+
+### 准入密码
+
+自定义强密码，用于控制 API 访问：
+```bash
+# 示例
+ACCESS_KEYS=my_secret_key_123,another_key_456
+```
+
+## 🧪 测试部署
+
+### 1. 测试模型列表
+
+```bash
+curl -H "Authorization: Bearer your_access_password" \
+     https://your-project.deno.dev/v1/models
+```
+
+### 2. 测试聊天补全
+
+```bash
 curl -X POST https://your-project.deno.dev/v1/chat/completions \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer your_access_password" \
   -d '{
     "model": "gemini-1.5-pro",
     "messages": [{"role": "user", "content": "你好"}]
   }'
 ```
 
-## 使用说明
+### 3. 测试图片识别
 
-### 支持的端点
-
-- `GET /v1/models` - 获取可用模型列表
-- `POST /v1/chat/completions` - 聊天补全（兼容 OpenAI 格式）
-
-### 支持的功能
-
-- ✅ 文本对话
-- ✅ 流式响应
-- ✅ 多模态输入（图像）
-- ✅ 函数调用/工具使用
-- ✅ 系统提示
-- ✅ 温度、top_p 等参数
-- ✅ 多密钥负载均衡
-- ✅ 自动重试机制
-
-### 客户端集成
-
-您可以使用任何支持 OpenAI API 的客户端库，只需将 base URL 更改为您的 Deno Deploy URL：
-
-```python
-# Python 示例
-import openai
-
-client = openai.OpenAI(
-    base_url="https://your-project.deno.dev/v1",
-    api_key="dummy"  # 不需要真实的 OpenAI 密钥
-)
-
-response = client.chat.completions.create(
-    model="gemini-1.5-pro",
-    messages=[{"role": "user", "content": "你好"}]
-)
+```bash
+curl -X POST https://your-project.deno.dev/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer your_access_password" \
+  -d '{
+    "model": "gemini-1.5-pro",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {"type": "text", "text": "这是什么颜色？"},
+          {"type": "image_url", "image_url": {"url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg=="}}
+        ]
+      }
+    ]
+  }'
 ```
 
-```javascript
-// JavaScript 示例
-import OpenAI from 'openai';
+## 📊 监控日志
 
-const openai = new OpenAI({
-  baseURL: 'https://your-project.deno.dev/v1',
-  apiKey: 'dummy'  // 不需要真实的 OpenAI 密钥
-});
+在 Deno Deploy 控制台查看实时日志：
 
-const response = await openai.chat.completions.create({
-  model: 'gemini-1.5-pro',
-  messages: [{ role: 'user', content: '你好' }]
-});
+**配置完成的日志示例：**
+```
+✅ 已加载 2 个Gemini API密钥
+✅ 已加载 2 个准入密码
+✅ 服务器配置完整，可以正常使用
+已获取 46 个可用的Gemini模型
 ```
 
-## 监控和日志
+**未配置的日志示例：**
+```
+⚠️  未配置Gemini API密钥 - 请在Deno Deploy中设置GEMINI_API_KEYS环境变量
+⚠️  未配置准入密码 - 请在Deno Deploy中设置ACCESS_KEYS环境变量
+⚠️  服务器配置不完整，需要设置以下环境变量:
+   - GEMINI_API_KEYS
+   - ACCESS_KEYS
+💡 请在Deno Deploy控制台中添加缺失的环境变量
+```
 
-- Deno Deploy 提供内置的日志查看功能
-- 可以在项目控制台中查看实时日志
-- 建议设置 `LOG_LEVEL=info` 以获得适当的日志详细程度
+## 🔒 安全建议
 
-## 故障排除
+1. **保护密钥**：
+   - 使用强密码作为准入密码
+   - 定期轮换 API 密钥
+   - 不要在代码中硬编码密钥
+
+2. **访问控制**：
+   - 设置复杂的准入密码
+   - 监控 API 使用情况
+   - 考虑使用多个密码分发给不同用户
+
+## 🆘 故障排除
 
 ### 常见问题
 
-1. **API 密钥错误**
-   - 确保在环境变量中正确设置了 `GEMINI_API_KEYS`
-   - 验证密钥是否有效且有足够的配额
+1. **服务启动但无法使用**
+   - 检查环境变量是否正确设置
+   - 访问根路径查看配置状态
 
-2. **模型不可用**
-   - 检查模型名称是否正确
-   - 使用 `/v1/models` 端点查看可用模型
+2. **身份验证失败**
+   ```json
+   {
+     "error": {
+       "message": "服务器未配置准入密码。请在Deno Deploy环境变量中设置ACCESS_KEYS。",
+       "type": "configuration_error"
+     }
+   }
+   ```
+   **解决方案**：在 Deno Deploy 中设置 `ACCESS_KEYS` 环境变量
 
-3. **请求超时**
-   - 增加 `REQUEST_TIMEOUT` 值
-   - 检查网络连接
+3. **模型列表为空**
+   ```json
+   {
+     "error": {
+       "message": "服务器未配置Gemini API密钥。请在Deno Deploy环境变量中设置GEMINI_API_KEYS。",
+       "type": "configuration_error"
+     }
+   }
+   ```
+   **解决方案**：在 Deno Deploy 中设置 `GEMINI_API_KEYS` 环境变量
 
-4. **速率限制**
-   - 添加更多 API 密钥实现负载均衡
-   - 增加 `MAX_RETRIES` 值
+### 检查清单
 
-### 性能优化
+- [ ] 项目成功部署到 Deno Deploy
+- [ ] 设置了 `GEMINI_API_KEYS` 环境变量
+- [ ] 设置了 `ACCESS_KEYS` 环境变量
+- [ ] 根路径返回 `"status": "ready"`
+- [ ] 模型列表 API 正常工作
+- [ ] 聊天补全 API 正常工作
 
-- 使用多个 API 密钥以提高并发处理能力
-- 适当设置超时值以平衡响应时间和稳定性
-- 监控日志以识别性能瓶颈
+## 🎉 部署完成
 
-## 安全注意事项
+配置完成后，您的服务支持：
 
-- 不要在代码中硬编码 API 密钥
-- 使用环境变量管理敏感信息
-- 根据需要配置 CORS 设置
-- 定期轮换 API 密钥
+- ✅ OpenAI 兼容的聊天补全 API
+- ✅ 图片识别（data URI 格式）
+- ✅ 流式响应
+- ✅ 自动密钥轮换和重试
+- ✅ 详细的请求日志
+- ✅ 友好的错误提示
 
-## 更新部署
+**API 端点：**
+- `GET /` - 服务状态和配置信息
+- `GET /v1/models` - 获取可用模型列表
+- `POST /v1/chat/completions` - 聊天补全（兼容 OpenAI 格式）
 
-如果使用 GitHub 连接：
-- 推送代码到 GitHub 仓库即可自动部署
-
-如果使用直接上传：
-- 重新上传修改后的文件到 Deno Deploy
-
----
-
-有问题？请查看 [Deno Deploy 文档](https://deno.com/deploy/docs) 或提交 Issue。
+享受您的 Gemini 到 OpenAI 兼容 API 服务！🚀

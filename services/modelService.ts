@@ -25,6 +25,12 @@ class ModelService {
       return this.models;
     }
 
+    // 检查是否配置了API密钥
+    if (!configManager.hasGeminiKeys()) {
+      logger.warn("未配置Gemini API密钥，返回空模型列表");
+      return [];
+    }
+
     try {
       const apiKey = configManager.getNextApiKey();
       const response = await fetch(

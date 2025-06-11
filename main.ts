@@ -23,10 +23,18 @@ async function handler(req: Request): Promise<Response> {
     // 路由处理
     if (url.pathname === "/") {
       const cacheStats = imageCache.getStats();
+      const configStatus = configManager.getConfigStatus();
+
       return new Response(
         JSON.stringify({
           message: "Gemini到OpenAI兼容API服务器",
           version: "1.0.0",
+          status: configStatus.configured ? "ready" : "needs_configuration",
+          configuration: {
+            configured: configStatus.configured,
+            missingKeys: configStatus.missingKeys,
+            instructions: configStatus.configured ? null : "请在Deno Deploy环境变量中设置缺失的密钥"
+          },
           endpoints: [
             "GET /v1/models - 列出可用模型",
             "POST /v1/chat/completions - 聊天补全（兼容OpenAI）"
@@ -100,6 +108,27 @@ async function handleModelsRequest(req: Request): Promise<Response> {
 
   logger.info(`[${requestId}] ✅ 身份验证成功`);
 
+  // 检查Gemini API密钥配置
+  if (!configManager.hasGeminiKeys()) {
+    logger.warn(`[${requestId}] ❌ 未配置Gemini API密钥`);
+    return new Response(
+      JSON.stringify({
+        error: {
+          message: "服务器未配置Gemini API密钥。请在Deno Deploy环境变量中设置GEMINI_API_KEYS。",
+          type: "configuration_error",
+          code: "missing_gemini_keys"
+        },
+      }),
+      {
+        status: 503,
+        headers: {
+          "Content-Type": "application/json",
+          ...getCorsHeaders()
+        },
+      }
+    );
+  }
+
   try {
     logger.info(`[${requestId}] 📤 获取模型列表`);
     const models = await modelService.getOpenAICompatibleModels();
@@ -145,6 +174,29 @@ async function handleChatCompletions(req: Request): Promise<Response> {
   }
 
   logger.info(`[${requestId}] ✅ 身份验证成功`);
+
+  // 检查配置状态
+  const configStatus = configManager.getConfigStatus();
+  if (!configStatus.configured) {
+    logger.warn(`[${requestId}] ❌ 服务器配置不完整: ${configStatus.missingKeys.join(', ')}`);
+    return new Response(
+      JSON.stringify({
+        error: {
+          message: `服务器配置不完整。请在Deno Deploy环境变量中设置: ${configStatus.missingKeys.join(', ')}`,
+          type: "configuration_error",
+          code: "incomplete_configuration",
+          missing_keys: configStatus.missingKeys
+        },
+      }),
+      {
+        status: 503,
+        headers: {
+          "Content-Type": "application/json",
+          ...getCorsHeaders()
+        },
+      }
+    );
+  }
 
   try {
     const openaiRequest: OpenAIRequest = await req.json();
@@ -364,16 +416,30 @@ async function main() {
   try {
     // 加载配置
     const config = await configManager.loadConfig();
+    const configStatus = configManager.getConfigStatus();
 
-    // 预获取可用模型
-    logger.info("正在获取可用的Gemini模型...");
-    await modelService.getAvailableModels();
+    // 尝试获取可用模型（如果配置了API密钥）
+    if (configManager.hasGeminiKeys()) {
+      logger.info("正在获取可用的Gemini模型...");
+      const models = await modelService.getAvailableModels();
+      logger.info(`已获取 ${models.length} 个可用的Gemini模型`);
+    } else {
+      logger.warn("跳过模型获取 - 未配置Gemini API密钥");
+    }
 
     logger.info(`正在启动Gemini到OpenAI兼容API服务器...`);
     logger.info(`服务器将在端口 ${config.port} 上运行`);
     logger.info(`CORS源: ${config.corsOrigin}`);
-    logger.info(`已加载 ${config.geminiApiKeys.length} 个Gemini API密钥`);
-    logger.info(`已配置 ${config.accessKeys.length} 个准入密码`);
+
+    if (configStatus.configured) {
+      logger.info("✅ 服务器配置完整，可以正常使用");
+    } else {
+      logger.warn("⚠️  服务器配置不完整，需要设置以下环境变量:");
+      for (const key of configStatus.missingKeys) {
+        logger.warn(`   - ${key}`);
+      }
+      logger.info("💡 请在Deno Deploy控制台中添加缺失的环境变量");
+    }
 
     // 使用Deno.serve启动服务器
     Deno.serve({ port: config.port }, handler);

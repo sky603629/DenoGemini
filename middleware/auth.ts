@@ -44,8 +44,21 @@ function extractApiKey(request: Request): string | null {
  */
 export function authenticateRequest(request: Request): AuthResult {
   try {
+    // 检查是否配置了准入密码
+    if (!configManager.hasAccessKeys()) {
+      logger.warn("服务器未配置准入密码");
+      return {
+        success: false,
+        error: {
+          message: "服务器未配置准入密码。请在Deno Deploy环境变量中设置ACCESS_KEYS。",
+          type: "configuration_error",
+          code: "missing_access_keys"
+        }
+      };
+    }
+
     const providedKey = extractApiKey(request);
-    
+
     if (!providedKey) {
       logger.warn("请求缺少API密钥");
       return {
@@ -57,9 +70,9 @@ export function authenticateRequest(request: Request): AuthResult {
         }
       };
     }
-    
+
     const isValid = configManager.validateAccessKey(providedKey);
-    
+
     if (!isValid) {
       logger.warn(`无效的API密钥: ${providedKey.slice(0, 8)}...`);
       return {
@@ -71,10 +84,10 @@ export function authenticateRequest(request: Request): AuthResult {
         }
       };
     }
-    
+
     logger.debug(`API密钥验证成功: ${providedKey.slice(0, 8)}...`);
     return { success: true };
-    
+
   } catch (error) {
     logger.error("身份验证过程中出错:", error);
     return {

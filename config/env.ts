@@ -33,20 +33,12 @@ class ConfigManager {
       .map(key => key.trim())
       .filter(key => key.length > 0);
 
-    if (geminiApiKeys.length === 0) {
-      throw new Error("未找到Gemini API密钥。请设置GEMINI_API_KEYS或GEMINI_API_KEY环境变量。");
-    }
-
     // 解析准入密码
     const accessKeysEnv = Deno.env.get("ACCESS_KEYS") || Deno.env.get("ACCESS_KEY") || "";
     const accessKeys = accessKeysEnv
       .split(",")
       .map(key => key.trim())
       .filter(key => key.length > 0);
-
-    if (accessKeys.length === 0) {
-      throw new Error("未找到准入密码。请设置ACCESS_KEYS或ACCESS_KEY环境变量。");
-    }
 
     this.config = {
       geminiApiKeys,
@@ -58,8 +50,19 @@ class ConfigManager {
       requestTimeout: parseInt(Deno.env.get("REQUEST_TIMEOUT") || "30000"),
     };
 
-    console.log(`已加载 ${this.config.geminiApiKeys.length} 个Gemini API密钥`);
-    console.log(`已加载 ${this.config.accessKeys.length} 个准入密码`);
+    // 输出配置状态
+    if (this.config.geminiApiKeys.length === 0) {
+      console.log("⚠️  未配置Gemini API密钥 - 请在Deno Deploy中设置GEMINI_API_KEYS环境变量");
+    } else {
+      console.log(`✅ 已加载 ${this.config.geminiApiKeys.length} 个Gemini API密钥`);
+    }
+
+    if (this.config.accessKeys.length === 0) {
+      console.log("⚠️  未配置准入密码 - 请在Deno Deploy中设置ACCESS_KEYS环境变量");
+    } else {
+      console.log(`✅ 已加载 ${this.config.accessKeys.length} 个准入密码`);
+    }
+
     return this.config;
   }
 
@@ -99,6 +102,41 @@ class ConfigManager {
 
   getAccessKeyCount(): number {
     return this.getConfig().accessKeys.length;
+  }
+
+  // 检查是否已配置必需的密钥
+  isConfigured(): boolean {
+    const config = this.getConfig();
+    return config.geminiApiKeys.length > 0 && config.accessKeys.length > 0;
+  }
+
+  // 检查Gemini API密钥是否已配置
+  hasGeminiKeys(): boolean {
+    return this.getConfig().geminiApiKeys.length > 0;
+  }
+
+  // 检查准入密码是否已配置
+  hasAccessKeys(): boolean {
+    return this.getConfig().accessKeys.length > 0;
+  }
+
+  // 获取配置状态信息
+  getConfigStatus(): { configured: boolean; missingKeys: string[] } {
+    const config = this.getConfig();
+    const missingKeys: string[] = [];
+
+    if (config.geminiApiKeys.length === 0) {
+      missingKeys.push("GEMINI_API_KEYS");
+    }
+
+    if (config.accessKeys.length === 0) {
+      missingKeys.push("ACCESS_KEYS");
+    }
+
+    return {
+      configured: missingKeys.length === 0,
+      missingKeys
+    };
   }
 }
 

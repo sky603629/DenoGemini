@@ -12,7 +12,8 @@
     "test:stream": "deno run --allow-net test-stream.ts",
     "test:image-perf": "deno run --allow-net test-image-performance.ts",
     "test:image-simple": "deno run --allow-net test-image-simple.ts",
-    "test:logs": "deno run --allow-net test-logs.ts"
+    "test:logs": "deno run --allow-net test-logs.ts",
+    "test:deploy": "deno run --allow-net --allow-env test-deploy-config.ts"
   },
   "imports": {
     "@std/assert": "jsr:@std/assert@1",
