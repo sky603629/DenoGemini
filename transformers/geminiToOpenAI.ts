@@ -1,5 +1,6 @@
 import { OpenAIResponse, OpenAIChoice, OpenAIMessage, ToolCall, OpenAIUsage, OpenAIRequest } from "../types/openai.ts";
 import { GeminiResponse, GeminiCandidate } from "../types/gemini.ts";
+import { logger } from "../config/env.ts";
 
 export function transformGeminiResponseToOpenAI(
   geminiResponse: GeminiResponse,
@@ -63,9 +64,34 @@ function transformCandidateToChoice(candidate: GeminiCandidate, index: number): 
     }
   }
 
+  // 处理思考模型的特殊响应格式
+  let finalContent = combinedContent;
+
+  // 检查是否为思考模型（包含 <think> 标签或模型名包含 2.5）
+  const isThinkingModel = finalContent.includes('<think>') || finalContent.includes('</think>');
+
+  if (isThinkingModel) {
+    logger.debug("检测到思考模型响应，处理思考内容");
+    // 确保思考模型的响应格式正确
+    if (!finalContent.includes('<think>') && !finalContent.includes('</think>')) {
+      // 如果没有思考标签，为整个内容添加思考标签
+      finalContent = `<think>\n${finalContent}\n</think>\n\n基于以上思考，我的回答是：${finalContent}`;
+    }
+  }
+
+  // 确保内容不为空，避免应用端处理 null 值时出错
+  if (toolCalls.length === 0 && (!finalContent || finalContent.trim() === "")) {
+    logger.warn("Gemini响应内容为空，提供默认内容");
+    if (isThinkingModel) {
+      finalContent = "<think>\n用户的请求需要我思考，但我暂时无法生成完整的思考过程。\n</think>\n\n抱歉，我暂时无法生成回复。请稍后再试。";
+    } else {
+      finalContent = "抱歉，我暂时无法生成回复。请稍后再试。";
+    }
+  }
+
   const message: OpenAIMessage = {
     role: "assistant",
-    content: toolCalls.length > 0 ? null : combinedContent || null,
+    content: toolCalls.length > 0 ? null : finalContent,
   };
 
   if (toolCalls.length > 0) {
