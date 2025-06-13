@@ -1,6 +1,7 @@
 import { GeminiRequest, GeminiResponse } from "../types/gemini.ts";
 import { configManager, logger } from "../config/env.ts";
 import { modelService } from "./modelService.ts";
+import { concurrencyManager, connectionPool } from "./concurrencyManager.ts";
 
 export class GeminiClient {
   private async makeRequest(
@@ -118,22 +119,47 @@ export class GeminiClient {
   ): Promise<GeminiResponse> {
     const normalizedModelName = modelService.normalizeModelName(modelName);
     const endpoint = `${normalizedModelName}:generateContent`;
-    
-    const response = await this.makeRequest(endpoint, request);
-    
-    if (!response.ok) {
-      const errorBody = await response.json().catch(() => ({}));
-      throw {
-        error: {
-          code: response.status,
-          message: errorBody.error?.message || `HTTP ${response.status}: ${response.statusText}`,
-          status: response.statusText,
-          details: errorBody.error?.details || []
+
+    // 生成请求ID用于并发管理
+    const requestId = `${endpoint}-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+
+    // 使用并发管理器执行请求
+    return await concurrencyManager.executeRequest(
+      requestId,
+      async () => {
+        const apiKey = configManager.getApiKey(0);
+
+        // 记录API使用情况
+        concurrencyManager.recordApiUsage(apiKey);
+
+        // 获取连接
+        const url = `https://generativelanguage.googleapis.com/v1beta/${endpoint}`;
+        connectionPool.getConnection(url);
+
+        try {
+          const response = await this.makeRequest(endpoint, request);
+
+          if (!response.ok) {
+            const errorBody = await response.json().catch(() => ({}));
+            throw {
+              error: {
+                code: response.status,
+                message: errorBody.error?.message || `HTTP ${response.status}: ${response.statusText}`,
+                status: response.statusText,
+                details: errorBody.error?.details || []
+              }
+            };
+          }
+
+          return await response.json();
+        } finally {
+          // 释放连接
+          connectionPool.releaseConnection(url);
         }
-      };
-    }
-    
-    return await response.json();
+      },
+      0, // 普通优先级
+      configManager.getApiKey(0)
+    );
   }
 
   async streamGenerateContent(
@@ -142,26 +168,51 @@ export class GeminiClient {
   ): Promise<ReadableStream<Uint8Array>> {
     const normalizedModelName = modelService.normalizeModelName(modelName);
     const endpoint = `${normalizedModelName}:streamGenerateContent`;
-    
-    const response = await this.makeRequest(endpoint, request, true);
-    
-    if (!response.ok) {
-      const errorBody = await response.json().catch(() => ({}));
-      throw {
-        error: {
-          code: response.status,
-          message: errorBody.error?.message || `HTTP ${response.status}: ${response.statusText}`,
-          status: response.statusText,
-          details: errorBody.error?.details || []
+
+    // 生成请求ID用于并发管理
+    const requestId = `${endpoint}-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+
+    // 流式请求使用高优先级
+    return await concurrencyManager.executeRequest(
+      requestId,
+      async () => {
+        const apiKey = configManager.getApiKey(0);
+
+        // 记录API使用情况
+        concurrencyManager.recordApiUsage(apiKey);
+
+        // 获取连接
+        const url = `https://generativelanguage.googleapis.com/v1beta/${endpoint}`;
+        connectionPool.getConnection(url);
+
+        try {
+          const response = await this.makeRequest(endpoint, request, true);
+
+          if (!response.ok) {
+            const errorBody = await response.json().catch(() => ({}));
+            throw {
+              error: {
+                code: response.status,
+                message: errorBody.error?.message || `HTTP ${response.status}: ${response.statusText}`,
+                status: response.statusText,
+                details: errorBody.error?.details || []
+              }
+            };
+          }
+
+          if (!response.body) {
+            throw new Error("未从Gemini API接收到响应体");
+          }
+
+          return response.body;
+        } finally {
+          // 释放连接
+          connectionPool.releaseConnection(url);
         }
-      };
-    }
-    
-    if (!response.body) {
-      throw new Error("未从Gemini API接收到响应体");
-    }
-    
-    return response.body;
+      },
+      1, // 流式请求使用高优先级
+      configManager.getApiKey(0)
+    );
   }
 }
 

@@ -7,6 +7,7 @@ import { transformGeminiResponseToOpenAI, transformGeminiErrorToOpenAI } from ".
 import { createGeminiToOpenAISSEStream } from "./transformers/streamTransformer.ts";
 import { authenticateRequest, createAuthErrorResponse } from "./middleware/auth.ts";
 import { imageCache } from "./services/imageCache.ts";
+import { concurrencyManager, connectionPool } from "./services/concurrencyManager.ts";
 
 async function handler(req: Request): Promise<Response> {
   const url = new URL(req.url);
@@ -24,12 +25,14 @@ async function handler(req: Request): Promise<Response> {
     if (url.pathname === "/") {
       const cacheStats = imageCache.getStats();
       const configStatus = configManager.getConfigStatus();
+      const health = concurrencyManager.getHealthStatus();
+      const connectionStats = connectionPool.getStats();
 
       return new Response(
         JSON.stringify({
-          message: "Gemini到OpenAI兼容API服务器",
-          version: "1.0.0",
-          status: configStatus.configured ? "ready" : "needs_configuration",
+          message: "Gemini到OpenAI兼容API服务器 (高并发优化版)",
+          version: "2.0.0",
+          status: configStatus.configured ? health.status : "needs_configuration",
           configuration: {
             configured: configStatus.configured,
             missingKeys: configStatus.missingKeys,
@@ -37,8 +40,22 @@ async function handler(req: Request): Promise<Response> {
           },
           endpoints: [
             "GET /v1/models - 列出可用模型",
-            "POST /v1/chat/completions - 聊天补全（兼容OpenAI）"
+            "POST /v1/chat/completions - 聊天补全（兼容OpenAI）",
+            "GET /health - 健康检查和性能状态",
+            "GET /stats - 详细统计信息"
           ],
+          performance: {
+            status: health.status,
+            queueUtilization: `${health.queueUtilization}%`,
+            concurrencyUtilization: `${health.concurrencyUtilization}%`,
+            averageResponseTime: `${health.averageResponseTime}ms`,
+            successRate: `${health.successRate}%`,
+            connections: {
+              active: connectionStats.activeConnections,
+              total: connectionStats.totalConnections,
+              max: connectionStats.maxConnections
+            }
+          },
           cache: {
             images: cacheStats.size,
             totalSize: `${cacheStats.totalSize}KB`
@@ -60,6 +77,15 @@ async function handler(req: Request): Promise<Response> {
 
     if (req.method === "POST" && url.pathname === "/v1/chat/completions") {
       return await handleChatCompletions(req);
+    }
+
+    // 性能监控端点
+    if (req.method === "GET" && url.pathname === "/health") {
+      return handleHealthCheck(req);
+    }
+
+    if (req.method === "GET" && url.pathname === "/stats") {
+      return handleStatsRequest(req);
     }
 
     // 未知端点返回404
@@ -92,6 +118,70 @@ async function handler(req: Request): Promise<Response> {
       }
     );
   }
+}
+
+function handleHealthCheck(_req: Request): Response {
+  const health = concurrencyManager.getHealthStatus();
+  const connectionStats = connectionPool.getStats();
+
+  return new Response(
+    JSON.stringify({
+      status: health.status,
+      timestamp: new Date().toISOString(),
+      performance: {
+        queueUtilization: `${health.queueUtilization}%`,
+        concurrencyUtilization: `${health.concurrencyUtilization}%`,
+        averageResponseTime: `${health.averageResponseTime}ms`,
+        successRate: `${health.successRate}%`
+      },
+      connections: {
+        total: connectionStats.totalConnections,
+        active: connectionStats.activeConnections,
+        max: connectionStats.maxConnections
+      }
+    }),
+    {
+      status: 200,
+      headers: {
+        "Content-Type": "application/json",
+        ...getCorsHeaders()
+      }
+    }
+  );
+}
+
+function handleStatsRequest(_req: Request): Response {
+  const stats = concurrencyManager.getStats();
+  const connectionStats = connectionPool.getStats();
+  const cacheStats = imageCache.getStats();
+
+  return new Response(
+    JSON.stringify({
+      timestamp: new Date().toISOString(),
+      concurrency: {
+        totalRequests: stats.totalRequests,
+        completedRequests: stats.completedRequests,
+        failedRequests: stats.failedRequests,
+        activeRequests: stats.activeRequests,
+        queueLength: stats.queueLength,
+        queuedRequests: stats.queuedRequests,
+        averageResponseTime: Math.round(stats.averageResponseTime),
+        apiLimits: stats.apiLimits
+      },
+      connections: connectionStats,
+      cache: {
+        images: cacheStats.size,
+        totalSize: `${cacheStats.totalSize}KB`
+      }
+    }),
+    {
+      status: 200,
+      headers: {
+        "Content-Type": "application/json",
+        ...getCorsHeaders()
+      }
+    }
+  );
 }
 
 async function handleModelsRequest(req: Request): Promise<Response> {
@@ -451,15 +541,17 @@ async function main() {
 }
 
 // 处理优雅关闭
-Deno.addSignalListener("SIGINT", () => {
+Deno.addSignalListener("SIGINT", async () => {
   logger.info("收到SIGINT信号，正在优雅关闭...");
+  await concurrencyManager.shutdown();
   Deno.exit(0);
 });
 
 // 只在非Windows系统上监听SIGTERM
 if (Deno.build.os !== "windows") {
-  Deno.addSignalListener("SIGTERM", () => {
+  Deno.addSignalListener("SIGTERM", async () => {
     logger.info("收到SIGTERM信号，正在优雅关闭...");
+    await concurrencyManager.shutdown();
     Deno.exit(0);
   });
 }
