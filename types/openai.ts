@@ -55,6 +55,8 @@ export interface OpenAIRequest {
   top_logprobs?: number;
   // Non-standard extensions (like SiliconFlow's reasoning)
   thinking_budget?: number;
+  // 思考模型控制参数
+  enable_thinking?: boolean;
 }
 
 export interface OpenAIResponse {

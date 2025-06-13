@@ -4,10 +4,16 @@ import { logger } from "../config/env.ts";
 
 export function transformOpenAIRequestToGemini(
   openaiRequest: OpenAIRequest,
-  _geminiModelId: string
+  geminiModelId: string
 ): GeminiRequest {
   const contents: GeminiContent[] = [];
   let systemInstruction: GeminiContent | undefined = undefined;
+
+  // 检查是否为思考模型
+  const isThinkingModel = geminiModelId.includes('thinking') || geminiModelId.includes('2.5');
+  const enableThinking = openaiRequest.enable_thinking !== false; // 默认启用思考
+
+  logger.info(`模型类型检测: ${geminiModelId}, 思考模型: ${isThinkingModel}, 启用思考: ${enableThinking}`);
 
   // 处理消息
   for (const msg of openaiRequest.messages) {

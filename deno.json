@@ -15,7 +15,8 @@
     "test:logs": "deno run --allow-net test-logs.ts",
     "test:deploy": "deno run --allow-net --allow-env test-deploy-config.ts",
     "debug:model": "deno run --allow-net debug-model-issue.ts",
-    "test:thinking": "deno run --allow-net test-thinking-models.ts"
+    "test:thinking": "deno run --allow-net test-thinking-models.ts",
+    "test:app-compat": "deno run --allow-net test-app-compatibility.ts"
   },
   "imports": {
     "@std/assert": "jsr:@std/assert@1",
