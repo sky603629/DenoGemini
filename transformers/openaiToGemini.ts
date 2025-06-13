@@ -153,6 +153,38 @@ export function transformOpenAIRequestToGemini(
     geminiRequest.generationConfig.responseMimeType = "application/json";
   }
 
+  // 配置思考参数
+  if (isThinkingModel) {
+    geminiRequest.generationConfig.thinkingConfig = {
+      includeThoughts: enableThinking, // 根据 enable_thinking 参数决定是否包含思考过程
+    };
+
+    // 根据模型类型和输出限制设置思考预算
+    const maxOutputTokens = geminiRequest.generationConfig.maxOutputTokens || 1000;
+
+    if (geminiModelId.includes('2.5-pro')) {
+      // Gemini 2.5 Pro: 128-32768，不能完全关闭思考
+      if (enableThinking) {
+        // 为最终回答预留至少30%的token
+        const thinkingBudget = Math.min(Math.floor(maxOutputTokens * 0.7), 2048);
+        geminiRequest.generationConfig.thinkingConfig.thinkingBudget = Math.max(thinkingBudget, 128);
+      } else {
+        geminiRequest.generationConfig.thinkingConfig.thinkingBudget = 128; // 最小预算
+      }
+    } else if (geminiModelId.includes('2.5-flash')) {
+      // Gemini 2.5 Flash: 0-24576，可以完全关闭
+      if (enableThinking) {
+        // 为最终回答预留至少40%的token，避免思考占用所有token
+        const thinkingBudget = Math.min(Math.floor(maxOutputTokens * 0.6), 1024);
+        geminiRequest.generationConfig.thinkingConfig.thinkingBudget = Math.max(thinkingBudget, 256);
+      } else {
+        geminiRequest.generationConfig.thinkingConfig.thinkingBudget = 0; // 关闭思考
+      }
+    }
+
+    logger.info(`思考配置: includeThoughts=${enableThinking}, thinkingBudget=${geminiRequest.generationConfig.thinkingConfig.thinkingBudget}`);
+  }
+
   return geminiRequest;
 }
 

@@ -1,7 +1,7 @@
 // OpenAI API Types
 export interface OpenAIMessage {
   role: "system" | "user" | "assistant" | "tool";
-  content: string | OpenAIContentPart[] | null;
+  content: string | OpenAIContentPart[]; // 移除 null，确保永远有值
   name?: string;
   tool_calls?: ToolCall[];
   tool_call_id?: string;

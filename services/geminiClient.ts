@@ -48,6 +48,42 @@ export class GeminiClient {
 
       logger.info(`✅ Gemini API响应: ${response.status} ${response.statusText}`);
 
+      // 对于成功的响应，检查内容质量
+      if (response.status === 200 && !stream) {
+        try {
+          const responseText = await response.text();
+          const responseData = JSON.parse(responseText);
+
+          // 检查响应质量
+          if (responseData.candidates && responseData.candidates.length > 0) {
+            const candidate = responseData.candidates[0];
+            const hasContent = candidate.content?.parts?.some((part: { text?: string }) => part.text?.trim());
+
+            if (!hasContent) {
+              logger.warn(`⚠️ Gemini返回空内容响应:`);
+              logger.warn(`  - 完成原因: ${candidate.finishReason || '未知'}`);
+              logger.warn(`  - 安全评级: ${JSON.stringify(candidate.safetyRatings || [])}`);
+            } else {
+              const contentLength = candidate.content.parts
+                .filter((part: { text?: string }) => part.text)
+                .reduce((total: number, part: { text: string }) => total + part.text.length, 0);
+              logger.debug(`📄 响应内容长度: ${contentLength} 字符`);
+            }
+          } else {
+            logger.warn(`⚠️ Gemini响应中没有候选项`);
+          }
+
+          // 重新创建响应对象
+          return new Response(responseText, {
+            status: response.status,
+            statusText: response.statusText,
+            headers: response.headers
+          });
+        } catch (error) {
+          logger.warn(`无法解析Gemini响应进行质量检查: ${(error as Error).message}`);
+        }
+      }
+
       // 如果遇到速率限制或服务器错误，尝试下一个密钥
       if (response.status === 429 || response.status >= 500) {
         if (retryCount < maxRetries - 1) {

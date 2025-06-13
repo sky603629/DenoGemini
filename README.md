@@ -187,42 +187,6 @@ The server provides comprehensive error handling:
 - **Invalid Requests**: Proper validation with descriptive errors
 - **API Errors**: Gemini errors transformed to OpenAI format
 
-## Development
-
-### Running Tests
-
-```bash
-deno test --allow-net --allow-env
-```
-
-### Code Formatting
-
-```bash
-deno fmt
-```
-
-### Linting
-
-```bash
-deno lint
-```
-
 ## License
 
 MIT License - see LICENSE file for details.
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests if applicable
-5. Submit a pull request
-
-## Support
-
-For issues and questions:
-
-1. Check the existing issues
-2. Create a new issue with detailed information
-3. Include logs and configuration (without API keys)

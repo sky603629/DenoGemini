@@ -15,17 +15,18 @@ export interface GeminiContent {
 
 export interface GeminiPart {
   text?: string;
+  thought?: boolean; // 标识是否为思考内容
   inlineData?: {
     mimeType: string;
     data: string; // base64 encoded
   };
   functionCall?: {
     name: string;
-    args: Record<string, any>;
+    args: Record<string, unknown>;
   };
   functionResponse?: {
     name: string;
-    response: Record<string, any>;
+    response: Record<string, unknown>;
   };
   fileData?: {
     mimeType: string;
@@ -59,6 +60,11 @@ export interface GeminiSafetySetting {
   threshold: string;
 }
 
+export interface GeminiThinkingConfig {
+  includeThoughts?: boolean;
+  thinkingBudget?: number;
+}
+
 export interface GeminiGenerationConfig {
   temperature?: number;
   topP?: number;
@@ -68,6 +74,7 @@ export interface GeminiGenerationConfig {
   stopSequences?: string[];
   responseMimeType?: string;
   responseSchema?: Record<string, any>;
+  thinkingConfig?: GeminiThinkingConfig;
 }
 
 // Response types
@@ -112,6 +119,7 @@ export interface GeminiUsageMetadata {
   promptTokenCount?: number;
   candidatesTokenCount?: number;
   totalTokenCount?: number;
+  thoughtsTokenCount?: number; // 思考 token 数量
 }
 
 // Model listing types
