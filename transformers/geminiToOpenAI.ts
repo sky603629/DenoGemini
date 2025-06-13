@@ -3,6 +3,84 @@ import { GeminiResponse, GeminiCandidate } from "../types/gemini.ts";
 import { logger } from "../config/env.ts";
 
 /**
+ * 过滤内容中的思考性表述，确保纯净回答
+ */
+function filterThinkingContent(content: string): string {
+  if (!content) return content;
+
+  // 移除明显的思考性表述
+  const filtered = content
+    // 移除以思考性词汇开头的句子
+    .replace(/^(Let's|I should|I need to|I'll|My approach|The key|So |Well |Okay|Alright|Hmm)[^.]*\./gm, '')
+    // 移除 ** 标题格式
+    .replace(/\*\*[^*]+\*\*/g, '')
+    // 移除空行
+    .replace(/\n\s*\n/g, '\n')
+    // 清理开头和结尾的空白
+    .trim();
+
+  // 如果过滤后内容太少，返回原内容
+  if (filtered.length < content.length * 0.3) {
+    return content;
+  }
+
+  return filtered || content;
+}
+
+/**
+ * 清理Markdown格式，让回答更自然
+ */
+function cleanMarkdownFormatting(content: string): string {
+  if (!content) return content;
+
+  const cleaned = content
+    // 移除过度的粗体格式 **text** -> text
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    // 移除斜体格式 *text* -> text
+    .replace(/\*([^*]+)\*/g, '$1')
+    // 将列表项转换为自然段落
+    .replace(/^\s*\*\s+/gm, '')
+    .replace(/^\s*-\s+/gm, '')
+    .replace(/^\s*\d+\.\s+/gm, '')
+    // 移除行首的空格
+    .replace(/^\s+/gm, '')
+    // 处理过多的换行
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+
+  // 进一步优化段落结构
+  const lines = cleaned.split('\n');
+  const optimizedLines: string[] = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+
+    // 跳过空行
+    if (!line) {
+      // 只在前一行不是空行时添加空行
+      if (optimizedLines.length > 0 && optimizedLines[optimizedLines.length - 1] !== '') {
+        optimizedLines.push('');
+      }
+      continue;
+    }
+
+    // 如果是短句且下一行也是短句，尝试合并
+    if (line.length < 50 && i + 1 < lines.length) {
+      const nextLine = lines[i + 1].trim();
+      if (nextLine && nextLine.length < 50 && !nextLine.includes('：') && !nextLine.includes(':')) {
+        optimizedLines.push(line + ' ' + nextLine);
+        i++; // 跳过下一行
+        continue;
+      }
+    }
+
+    optimizedLines.push(line);
+  }
+
+  return optimizedLines.join('\n').trim();
+}
+
+/**
  * 从思考内容中生成合适的回答
  */
 function generateAnswerFromThinking(thinkingContent: string): string {
@@ -168,16 +246,23 @@ function transformCandidateToChoice(candidate: GeminiCandidate, index: number, e
                            (combinedContent.includes("Let's") ||
                             combinedContent.includes("I should") ||
                             combinedContent.includes("Hmm") ||
-                            combinedContent.includes("Okay"));
+                            combinedContent.includes("Okay") ||
+                            combinedContent.includes("Alright") ||
+                            combinedContent.includes("Well") ||
+                            combinedContent.includes("My ") ||
+                            combinedContent.includes("The ") ||
+                            combinedContent.includes("So "));
 
   if (hasOfficialThinking) {
     // 有官方思考内容
     if (enableThinking) {
+      // 只有明确启用思考时才包含思考内容
       finalContent = `<think>\n${thinkingContent}\n</think>\n\n${combinedContent}`;
       logger.debug(`使用官方思考内容: ${thinkingContent.length} 字符`);
     } else {
+      // 默认情况下完全忽略思考内容，当作普通模型使用
       finalContent = combinedContent;
-      logger.debug(`跳过官方思考内容，只返回最终回答`);
+      logger.debug(`默认模式: 忽略思考内容 ${thinkingContent.length} 字符，当作普通模型使用`);
     }
   } else if (hasInlineThinking) {
     // 检测到内联的英文思考过程，需要分离
@@ -192,14 +277,21 @@ function transformCandidateToChoice(candidate: GeminiCandidate, index: number, e
     for (const line of lines) {
       const trimmedLine = line.trim();
 
-      // 检测是否是中文回答的开始（通常思考过程是英文，回答是中文）
-      if (trimmedLine && /[\u4e00-\u9fa5]/.test(trimmedLine) && !trimmedLine.includes("**")) {
+      // 更严格的思考内容检测
+      const isThinkingLine = trimmedLine.includes("**") ||
+                            /^(Let's|I |My |The |So |Well |Okay|Alright|Hmm)/.test(trimmedLine) ||
+                            /\*\*.*\*\*/.test(trimmedLine);
+
+      // 检测是否是中文回答的开始
+      const isChineseAnswer = /[\u4e00-\u9fa5]/.test(trimmedLine) && !isThinkingLine;
+
+      if (isChineseAnswer && inThinkingMode) {
         inThinkingMode = false;
       }
 
-      if (inThinkingMode && (trimmedLine.includes("**") || trimmedLine.includes("Let's") || trimmedLine.includes("I "))) {
+      if (inThinkingMode && isThinkingLine) {
         thinkingLines.push(line);
-      } else if (!inThinkingMode || /[\u4e00-\u9fa5]/.test(trimmedLine)) {
+      } else if (!inThinkingMode || isChineseAnswer) {
         answerLines.push(line);
       }
     }
@@ -208,16 +300,23 @@ function transformCandidateToChoice(candidate: GeminiCandidate, index: number, e
     const extractedAnswer = answerLines.join('\n').trim();
 
     if (enableThinking && extractedThinking) {
+      // 只有明确启用思考时才包含思考过程
       finalContent = `<think>\n${extractedThinking}\n</think>\n\n${extractedAnswer}`;
       logger.debug(`分离内联思考: 思考 ${extractedThinking.length} 字符, 回答 ${extractedAnswer.length} 字符`);
     } else {
+      // 默认情况下完全忽略思考过程，当作普通模型使用
       finalContent = extractedAnswer || combinedContent;
-      logger.debug(`只返回最终回答，跳过内联思考过程`);
+      logger.debug(`默认模式: 忽略内联思考过程，当作普通模型使用`);
     }
   } else {
-    // 没有检测到思考内容，直接使用组合内容
-    finalContent = combinedContent;
-    logger.debug("没有检测到思考内容，使用原始回答");
+    // 没有检测到明显的思考内容，但仍需要过滤可能的思考性表述
+    if (!enableThinking) {
+      finalContent = filterThinkingContent(combinedContent);
+      logger.debug("过滤思考性内容，确保纯净回答");
+    } else {
+      finalContent = combinedContent;
+      logger.debug("没有检测到思考内容，使用原始回答");
+    }
   }
 
   // 处理最终回答为空的情况
@@ -245,6 +344,25 @@ function transformCandidateToChoice(candidate: GeminiCandidate, index: number, e
     } else {
       finalContent = "抱歉，我暂时无法生成回复。请稍后再试。";
       logger.warn("所有内容都为空，使用默认回复");
+    }
+  }
+
+  // 清理Markdown格式，让回答更自然（只在非思考模式下且非JSON格式）
+  if (!enableThinking && finalContent && !finalContent.includes('<think>')) {
+    // 检测是否是JSON格式的回答
+    const isJsonResponse = finalContent.trim().startsWith('{') ||
+                          finalContent.trim().startsWith('[') ||
+                          finalContent.includes('```json') ||
+                          (finalContent.includes('{') && finalContent.includes('}'));
+
+    if (!isJsonResponse) {
+      const originalLength = finalContent.length;
+      finalContent = cleanMarkdownFormatting(finalContent);
+      if (finalContent.length !== originalLength) {
+        logger.debug(`清理Markdown格式: ${originalLength} -> ${finalContent.length} 字符`);
+      }
+    } else {
+      logger.debug("检测到JSON格式回答，跳过格式清理");
     }
   }
 

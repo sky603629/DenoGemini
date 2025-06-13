@@ -11,11 +11,42 @@ export function transformOpenAIRequestToGemini(
 
   // 检查是否为思考模型
   const isThinkingModel = geminiModelId.includes('thinking') || geminiModelId.includes('2.5');
-  const enableThinking = openaiRequest.enable_thinking !== false; // 默认启用思考
+  // 只有当应用端明确请求思考时才启用，默认禁用
+  const enableThinking = openaiRequest.enable_thinking === true;
 
   logger.info(`模型类型检测: ${geminiModelId}, 思考模型: ${isThinkingModel}, 启用思考: ${enableThinking}`);
+  logger.info(`原始请求参数: enable_thinking=${openaiRequest.enable_thinking}`);
 
   // 处理消息
+
+  // 检查是否需要添加格式化指令
+  const hasSystemMessage = openaiRequest.messages.some(msg => msg.role === 'system');
+  const isJsonRequest = openaiRequest.response_format?.type === "json_object" ||
+                       openaiRequest.messages.some(msg =>
+                         msg.content && typeof msg.content === 'string' &&
+                         (msg.content.toLowerCase().includes('json') ||
+                          msg.content.includes('{') ||
+                          msg.content.includes('}'))
+                       );
+  const shouldAddFormatInstruction = !hasSystemMessage && !enableThinking && !isJsonRequest;
+
+  if (shouldAddFormatInstruction) {
+    // 添加格式化指令，让回答更自然
+    contents.push({
+      role: "user",
+      parts: [{
+        text: "请用自然、连贯的方式回答问题。避免使用Markdown格式（如**粗体**、*斜体*、列表等），不要频繁换行，用完整的句子和段落来表达，就像正常人类对话一样流畅自然。"
+      }]
+    });
+    contents.push({
+      role: "model",
+      parts: [{
+        text: "好的，我会用自然流畅的方式回答，避免格式化标记，用连贯的段落表达，就像正常对话一样。"
+      }]
+    });
+    logger.debug("添加了格式化指令，优化输出风格");
+  }
+
   for (const msg of openaiRequest.messages) {
     if (msg.role === "system") {
       // 将系统消息作为系统指令处理
@@ -153,36 +184,55 @@ export function transformOpenAIRequestToGemini(
     geminiRequest.generationConfig.responseMimeType = "application/json";
   }
 
-  // 配置思考参数
+  // 配置思考参数 - 只有思考模型且明确启用时才配置
   if (isThinkingModel) {
-    geminiRequest.generationConfig.thinkingConfig = {
-      includeThoughts: enableThinking, // 根据 enable_thinking 参数决定是否包含思考过程
-    };
+    if (enableThinking) {
+      // 明确启用思考时的配置
+      geminiRequest.generationConfig.thinkingConfig = {
+        includeThoughts: true,
+      };
 
-    // 根据模型类型和输出限制设置思考预算
-    const maxOutputTokens = geminiRequest.generationConfig.maxOutputTokens || 1000;
+      // 根据模型类型和输出限制设置思考预算
+      const maxOutputTokens = geminiRequest.generationConfig.maxOutputTokens || 1000;
 
-    if (geminiModelId.includes('2.5-pro')) {
-      // Gemini 2.5 Pro: 128-32768，不能完全关闭思考
-      if (enableThinking) {
-        // 为最终回答预留至少30%的token
+      if (geminiModelId.includes('2.5-pro')) {
+        // Gemini 2.5 Pro: 128-32768，不能完全关闭思考
         const thinkingBudget = Math.min(Math.floor(maxOutputTokens * 0.7), 2048);
         geminiRequest.generationConfig.thinkingConfig.thinkingBudget = Math.max(thinkingBudget, 128);
-      } else {
-        geminiRequest.generationConfig.thinkingConfig.thinkingBudget = 128; // 最小预算
-      }
-    } else if (geminiModelId.includes('2.5-flash')) {
-      // Gemini 2.5 Flash: 0-24576，可以完全关闭
-      if (enableThinking) {
-        // 为最终回答预留至少40%的token，避免思考占用所有token
+      } else if (geminiModelId.includes('2.5-flash')) {
+        // Gemini 2.5 Flash: 0-24576，可以完全关闭
         const thinkingBudget = Math.min(Math.floor(maxOutputTokens * 0.6), 1024);
         geminiRequest.generationConfig.thinkingConfig.thinkingBudget = Math.max(thinkingBudget, 256);
-      } else {
-        geminiRequest.generationConfig.thinkingConfig.thinkingBudget = 0; // 关闭思考
+      }
+
+      logger.info(`思考配置: includeThoughts=true, thinkingBudget=${geminiRequest.generationConfig.thinkingConfig.thinkingBudget}`);
+    } else {
+      // 默认情况下完全禁用思考功能
+      if (geminiModelId.includes('2.5-flash')) {
+        // Flash 可以完全关闭思考
+        geminiRequest.generationConfig.thinkingConfig = {
+          includeThoughts: false,
+          thinkingBudget: 0
+        };
+        logger.info(`思考配置: 完全禁用思考功能 (Flash模型)`);
+      } else if (geminiModelId.includes('2.5-pro')) {
+        // Pro 最小思考预算，但仍然禁用输出
+        geminiRequest.generationConfig.thinkingConfig = {
+          includeThoughts: false,
+          thinkingBudget: 128
+        };
+        logger.info(`思考配置: 最小思考预算但禁用输出 (Pro模型)`);
+      }
+
+      // 额外确保：对于所有2.5模型，在默认情况下都明确禁用思考输出
+      if (!geminiRequest.generationConfig.thinkingConfig) {
+        geminiRequest.generationConfig.thinkingConfig = {
+          includeThoughts: false,
+          thinkingBudget: 0
+        };
+        logger.info(`思考配置: 强制禁用思考功能`);
       }
     }
-
-    logger.info(`思考配置: includeThoughts=${enableThinking}, thinkingBudget=${geminiRequest.generationConfig.thinkingConfig.thinkingBudget}`);
   }
 
   return geminiRequest;
