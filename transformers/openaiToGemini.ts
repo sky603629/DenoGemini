@@ -2,6 +2,37 @@ import { OpenAIRequest, OpenAIMessage, OpenAITool } from "../types/openai.ts";
 import { GeminiRequest, GeminiContent, GeminiPart, GeminiTool, GeminiFunctionDeclaration, GeminiToolConfig } from "../types/gemini.ts";
 import { logger } from "../config/env.ts";
 
+// 智能检测是否为JSON请求
+function isJsonContentRequest(messages: OpenAIMessage[]): boolean {
+  const lastMessage = messages[messages.length - 1];
+  if (!lastMessage || typeof lastMessage.content !== "string") {
+    return false;
+  }
+
+  const content = lastMessage.content.toLowerCase();
+
+  // 检测JSON相关关键词
+  const jsonKeywords = [
+    "json格式",
+    "json对象",
+    "返回json",
+    "输出json",
+    "以json",
+    "用json",
+    "json回答",
+    "json响应",
+    '"nickname"',
+    '"reason"',
+    '{"',
+    '}',
+    "请用json",
+    "json格式回答",
+    "json格式输出"
+  ];
+
+  return jsonKeywords.some(keyword => content.includes(keyword));
+}
+
 export function transformOpenAIRequestToGemini(
   openaiRequest: OpenAIRequest,
   _geminiModelId: string
@@ -103,7 +134,9 @@ export function transformOpenAIRequestToGemini(
   // 创建自然输出提示词（仅在非JSON格式时应用）
   let finalSystemContent = userSystemContent;
 
-  const isJsonRequest = openaiRequest.response_format?.type === "json_object";
+  // 智能检测JSON请求
+  const isJsonRequest = openaiRequest.response_format?.type === "json_object" ||
+                       isJsonContentRequest(openaiRequest.messages);
 
   if (!isJsonRequest) {
     const naturalOutputPrompt = `请用自然、连贯的语言回复，严格禁止使用以下格式：
@@ -193,8 +226,11 @@ export function transformOpenAIRequestToGemini(
   }
 
   // 处理响应格式
-  if (openaiRequest.response_format?.type === "json_object") {
+  if (openaiRequest.response_format?.type === "json_object" || isJsonRequest) {
     geminiRequest.generationConfig.responseMimeType = "application/json";
+    if (isJsonRequest && !openaiRequest.response_format) {
+      logger.debug("智能检测到JSON请求，自动设置JSON响应格式");
+    }
   }
 
   // 处理 Gemini 2.5 思考模式配置
