@@ -153,19 +153,27 @@ export function transformOpenAIRequestToGemini(
       `${userSystemContent}\n\n${naturalOutputPrompt}` :
       naturalOutputPrompt;
   } else {
-    // JSON请求时，添加JSON专用指令
-    const jsonPrompt = `请返回严格符合JSON语法的有效JSON格式。确保：
+    // JSON请求时，添加JSON专用指令和长度控制
+    let jsonPrompt = `请返回严格符合JSON语法的有效JSON格式。确保：
 - 所有字符串都用双引号包围
 - 属性名用双引号包围
 - 不要有多余的引号或转义字符
 - 确保JSON语法完全正确
 - 不要添加任何解释文字，只返回纯JSON`;
 
+    // 添加内容长度控制提示
+    if (openaiRequest.max_tokens !== undefined && openaiRequest.max_tokens <= 1000) {
+      const targetLength = Math.max(openaiRequest.max_tokens - 50, 50); // 预留50个token给JSON结构
+      jsonPrompt += `\n\n重要：请控制JSON内容的长度，特别是文本字段（如reason、description等）的内容应该简洁明了，总体内容长度控制在约${targetLength}个token以内。使用简短但准确的表达，避免冗长的描述。`;
+    } else if (openaiRequest.max_tokens !== undefined && openaiRequest.max_tokens <= 500) {
+      jsonPrompt += `\n\n重要：用户希望得到简洁的回复，请将JSON中的文本内容控制得非常简短，每个文本字段不超过1-2句话，使用最精炼的表达方式。`;
+    }
+
     finalSystemContent = userSystemContent ?
       `${userSystemContent}\n\n${jsonPrompt}` :
       jsonPrompt;
 
-    logger.debug("检测到JSON格式请求，应用JSON专用提示词");
+    logger.debug(`检测到JSON格式请求，应用JSON专用提示词 (用户token设置: ${openaiRequest.max_tokens})`);
   }
 
   const geminiRequest: GeminiRequest = {
