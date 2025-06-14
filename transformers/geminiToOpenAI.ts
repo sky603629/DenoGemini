@@ -12,7 +12,7 @@ export function transformGeminiResponseToOpenAI(
   if (geminiResponse.candidates && geminiResponse.candidates.length > 0) {
     for (let i = 0; i < geminiResponse.candidates.length; i++) {
       const candidate = geminiResponse.candidates[i];
-      const choice = transformCandidateToChoice(candidate, i);
+      const choice = transformCandidateToChoice(candidate, i, geminiResponse);
       choices.push(choice);
     }
   } else {
@@ -43,7 +43,7 @@ export function transformGeminiResponseToOpenAI(
   };
 }
 
-function transformCandidateToChoice(candidate: GeminiCandidate, index: number): OpenAIChoice {
+function transformCandidateToChoice(candidate: GeminiCandidate, index: number, geminiResponse?: GeminiResponse): OpenAIChoice {
   let combinedContent = "";
   const toolCalls: ToolCall[] = [];
 
@@ -81,11 +81,45 @@ function transformCandidateToChoice(candidate: GeminiCandidate, index: number): 
 
   // 确保内容不为空，避免应用端处理 null 值时出错
   if (toolCalls.length === 0 && (!finalContent || finalContent.trim() === "")) {
-    logger.warn("Gemini响应内容为空，提供默认内容");
+    // 获取完成原因以提供更具体的错误信息
+    const finishReason = geminiResponse?.candidates?.[0]?.finishReason || candidate.finishReason || "UNKNOWN";
+    logger.warn(`Gemini响应内容为空，完成原因: ${finishReason}`);
+
+    // 详细记录候选者信息用于调试
+    logger.debug(`候选者详情: ${JSON.stringify({
+      finishReason: candidate.finishReason,
+      safetyRatings: candidate.safetyRatings,
+      contentLength: candidate.content?.parts?.[0]?.text?.length || 0
+    })}`);
+
+    // 根据完成原因提供不同的错误信息
+    let errorMessage = "";
+    switch (finishReason) {
+      case "SAFETY":
+        errorMessage = "抱歉，您的请求可能包含不当内容，无法生成回复。请尝试修改您的问题。";
+        logger.warn("内容被安全过滤器拦截");
+        break;
+      case "RECITATION":
+        errorMessage = "抱歉，无法生成可能涉及版权的内容。请尝试其他问题。";
+        logger.warn("内容涉及版权问题");
+        break;
+      case "MAX_TOKENS":
+        errorMessage = "抱歉，回答内容过长被截断。请尝试简化您的问题。";
+        logger.warn("达到最大token限制");
+        break;
+      case "OTHER":
+        errorMessage = "抱歉，由于技术原因暂时无法生成回复。请稍后再试。";
+        logger.warn("其他原因导致无法生成内容");
+        break;
+      default:
+        errorMessage = "抱歉，我暂时无法生成回复。请稍后再试。";
+        logger.warn(`未知完成原因: ${finishReason}`);
+    }
+
     if (isThinkingModel) {
-      finalContent = "<think>\n用户的请求需要我思考，但我暂时无法生成完整的思考过程。\n</think>\n\n抱歉，我暂时无法生成回复。请稍后再试。";
+      finalContent = `<think>\n用户的请求需要我思考，但由于${finishReason}原因无法生成完整回复。\n</think>\n\n${errorMessage}`;
     } else {
-      finalContent = "抱歉，我暂时无法生成回复。请稍后再试。";
+      finalContent = errorMessage;
     }
   }
 

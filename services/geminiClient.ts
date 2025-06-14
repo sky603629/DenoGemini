@@ -97,7 +97,27 @@ export class GeminiClient {
       };
     }
     
-    return await response.json();
+    const responseData = await response.json();
+
+    // 记录响应详情以便调试
+    if (responseData.candidates && responseData.candidates.length > 0) {
+      const candidate = responseData.candidates[0];
+      const contentLength = candidate.content?.parts?.[0]?.text?.length || 0;
+      logger.debug(`Gemini响应详情: finishReason=${candidate.finishReason}, 内容长度=${contentLength}`);
+
+      if (candidate.finishReason && candidate.finishReason !== "STOP") {
+        logger.warn(`Gemini非正常完成: ${candidate.finishReason}`);
+
+        // 如果有安全过滤信息，记录详细信息
+        if (candidate.finishReason === "SAFETY" && candidate.safetyRatings) {
+          logger.warn(`安全过滤详情: ${JSON.stringify(candidate.safetyRatings)}`);
+        }
+      }
+    } else {
+      logger.warn("Gemini响应中没有candidates");
+    }
+
+    return responseData;
   }
 
   async streamGenerateContent(
