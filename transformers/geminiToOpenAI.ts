@@ -1,5 +1,5 @@
 import { OpenAIResponse, OpenAIChoice, OpenAIMessage, ToolCall, OpenAIUsage, OpenAIRequest } from "../types/openai.ts";
-import { GeminiResponse, GeminiCandidate } from "../types/gemini.ts";
+import { GeminiResponse, GeminiCandidate, GeminiPart } from "../types/gemini.ts";
 import { logger } from "../config/env.ts";
 
 export function transformGeminiResponseToOpenAI(
@@ -45,12 +45,18 @@ export function transformGeminiResponseToOpenAI(
 
 function transformCandidateToChoice(candidate: GeminiCandidate, index: number, geminiResponse?: GeminiResponse): OpenAIChoice {
   let combinedContent = "";
+  let thinkingContent = "";
   const toolCalls: ToolCall[] = [];
 
   if (candidate.content && candidate.content.parts) {
     for (const part of candidate.content.parts) {
       if (part.text) {
-        combinedContent += part.text;
+        // 检查是否是思考内容（根据官方文档）
+        if ((part as GeminiPart & { thought?: boolean }).thought === true) {
+          thinkingContent += part.text;
+        } else {
+          combinedContent += part.text;
+        }
       } else if (part.functionCall) {
         toolCalls.push({
           id: `call_${crypto.randomUUID()}`,
@@ -67,16 +73,17 @@ function transformCandidateToChoice(candidate: GeminiCandidate, index: number, g
   // 处理思考模型的特殊响应格式
   let finalContent = combinedContent;
 
-  // 检查是否为思考模型（包含 <think> 标签或模型名包含 2.5）
-  const isThinkingModel = finalContent.includes('<think>') || finalContent.includes('</think>');
+  // 如果有思考内容，按照标准格式组合
+  if (thinkingContent.trim()) {
+    logger.debug(`检测到思考内容: ${thinkingContent.length} 字符`);
+    finalContent = `<think>\n${thinkingContent}\n</think>\n\n${combinedContent}`;
+  }
+
+  // 检查是否为思考模型（包含思考内容或 <think> 标签）
+  const isThinkingModel = thinkingContent.trim() || finalContent.includes('<think>') || finalContent.includes('</think>');
 
   if (isThinkingModel) {
-    logger.debug("检测到思考模型响应，处理思考内容");
-    // 确保思考模型的响应格式正确
-    if (!finalContent.includes('<think>') && !finalContent.includes('</think>')) {
-      // 如果没有思考标签，为整个内容添加思考标签
-      finalContent = `<think>\n${finalContent}\n</think>\n\n基于以上思考，我的回答是：${finalContent}`;
-    }
+    logger.debug("检测到思考模型响应");
   }
 
   // 确保内容不为空，避免应用端处理 null 值时出错
@@ -132,10 +139,17 @@ function transformCandidateToChoice(candidate: GeminiCandidate, index: number, g
     message.tool_calls = toolCalls;
   }
 
+  // 如果有工具调用，finish_reason应该是tool_calls
+  let finishReason = mapFinishReasonToOpenAI(candidate.finishReason);
+  if (toolCalls.length > 0) {
+    finishReason = "tool_calls";
+    logger.debug(`检测到工具调用，设置finish_reason为tool_calls`);
+  }
+
   return {
     index: index,
     message: message,
-    finish_reason: mapFinishReasonToOpenAI(candidate.finishReason),
+    finish_reason: finishReason,
   };
 }
 

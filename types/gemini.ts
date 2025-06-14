@@ -68,6 +68,10 @@ export interface GeminiGenerationConfig {
   stopSequences?: string[];
   responseMimeType?: string;
   responseSchema?: Record<string, any>;
+  thinkingConfig?: {
+    includeThoughts?: boolean;
+    thinkingBudget?: number;
+  };
 }
 
 // Response types

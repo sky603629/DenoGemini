@@ -29,7 +29,20 @@ export class GeminiClient {
 
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), config.requestTimeout);
+
+      // 根据模型和 max_tokens 动态设置超时时间
+      const isThinkingModel = endpoint.includes("2.5");
+      const maxTokens = request.generationConfig?.maxOutputTokens || 1000;
+
+      let timeoutMs = config.requestTimeout; // 默认值
+      if (isThinkingModel && maxTokens > 10000) {
+        timeoutMs = 120000; // 2 分钟，用于大型请求
+      } else if (isThinkingModel) {
+        timeoutMs = 60000;  // 1 分钟，用于思考模型
+      }
+
+      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+      logger.debug(`设置请求超时时间: ${timeoutMs}ms (endpoint: ${endpoint}, maxTokens: ${maxTokens})`);
 
       const response = await fetch(url, {
         method: "POST",
@@ -61,7 +74,16 @@ export class GeminiClient {
       return response;
     } catch (error) {
       if ((error as Error).name === 'AbortError') {
-        throw new Error(`请求超时，超过 ${config.requestTimeout}ms`);
+        // 重新计算超时时间用于错误消息
+        const isThinkingModel = endpoint.includes("2.5");
+        const maxTokens = request.generationConfig?.maxOutputTokens || 1000;
+        let timeoutMs = config.requestTimeout;
+        if (isThinkingModel && maxTokens > 10000) {
+          timeoutMs = 120000;
+        } else if (isThinkingModel) {
+          timeoutMs = 60000;
+        }
+        throw new Error(`请求超时，超过 ${timeoutMs}ms`);
       }
 
       // 如果是网络错误且还有更多密钥可尝试
@@ -99,22 +121,41 @@ export class GeminiClient {
     
     const responseData = await response.json();
 
-    // 记录响应详情以便调试
+    // 记录详细响应信息以便调试
     if (responseData.candidates && responseData.candidates.length > 0) {
       const candidate = responseData.candidates[0];
-      const contentLength = candidate.content?.parts?.[0]?.text?.length || 0;
-      logger.debug(`Gemini响应详情: finishReason=${candidate.finishReason}, 内容长度=${contentLength}`);
+      const contentText = candidate.content?.parts?.[0]?.text || '';
+      const contentLength = contentText.length;
+
+      logger.info(`📥 Gemini响应详情:`);
+      logger.info(`   - 完成原因: ${candidate.finishReason || 'UNKNOWN'}`);
+      logger.info(`   - 内容长度: ${contentLength} 字符`);
+      logger.info(`   - 完整内容: "${contentText}"`);
 
       if (candidate.finishReason && candidate.finishReason !== "STOP") {
-        logger.warn(`Gemini非正常完成: ${candidate.finishReason}`);
+        logger.warn(`⚠️ Gemini非正常完成: ${candidate.finishReason}`);
 
         // 如果有安全过滤信息，记录详细信息
         if (candidate.finishReason === "SAFETY" && candidate.safetyRatings) {
-          logger.warn(`安全过滤详情: ${JSON.stringify(candidate.safetyRatings)}`);
+          logger.warn(`🛡️ 安全过滤详情: ${JSON.stringify(candidate.safetyRatings)}`);
+        }
+
+        // 如果是MAX_TOKENS，记录token使用情况
+        if (candidate.finishReason === "MAX_TOKENS") {
+          logger.warn(`📊 Token限制详情: 输出被截断`);
         }
       }
+
+      // 记录token使用情况
+      if (responseData.usageMetadata) {
+        logger.info(`📊 Token使用详情:`);
+        logger.info(`   - 输入Token: ${responseData.usageMetadata.promptTokenCount || 0}`);
+        logger.info(`   - 输出Token: ${responseData.usageMetadata.candidatesTokenCount || 0}`);
+        logger.info(`   - 总Token: ${responseData.usageMetadata.totalTokenCount || 0}`);
+      }
     } else {
-      logger.warn("Gemini响应中没有candidates");
+      logger.warn("❌ Gemini响应中没有candidates");
+      logger.warn(`🔍 完整响应: ${JSON.stringify(responseData)}`);
     }
 
     return responseData;

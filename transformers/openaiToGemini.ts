@@ -7,17 +7,14 @@ export function transformOpenAIRequestToGemini(
   _geminiModelId: string
 ): GeminiRequest {
   const contents: GeminiContent[] = [];
-  let systemInstruction: GeminiContent | undefined = undefined;
+  let userSystemContent = "";
 
   // 处理消息
   for (const msg of openaiRequest.messages) {
     if (msg.role === "system") {
-      // 将系统消息作为系统指令处理
+      // 收集系统消息内容
       if (typeof msg.content === "string") {
-        systemInstruction = {
-          role: "user", // 系统指令在Gemini中使用user角色
-          parts: [{ text: msg.content }]
-        };
+        userSystemContent += (userSystemContent ? "\n" : "") + msg.content;
       }
       continue;
     }
@@ -103,13 +100,51 @@ export function transformOpenAIRequestToGemini(
     }
   }
 
+  // 创建自然输出提示词（仅在非JSON格式时应用）
+  let finalSystemContent = userSystemContent;
+
+  const isJsonRequest = openaiRequest.response_format?.type === "json_object";
+
+  if (!isJsonRequest) {
+    const naturalOutputPrompt = `请用自然、连贯的语言回复，严格禁止使用以下格式：
+- 禁止使用星号 * 和 ** 进行任何格式化
+- 禁止使用项目符号（• * - 1. 2. 等）
+- 禁止使用粗体、斜体等markdown格式
+- 禁止使用过多的分段和换行
+- 禁止使用列表和表格格式
+
+请用完全自然的对话语言，就像面对面聊天一样，用连贯的句子表达，不要使用任何格式化符号。`;
+
+    // 合并系统指令
+    finalSystemContent = userSystemContent ?
+      `${userSystemContent}\n\n${naturalOutputPrompt}` :
+      naturalOutputPrompt;
+  } else {
+    // JSON请求时，添加JSON专用指令
+    const jsonPrompt = `请返回严格符合JSON语法的有效JSON格式。确保：
+- 所有字符串都用双引号包围
+- 属性名用双引号包围
+- 不要有多余的引号或转义字符
+- 确保JSON语法完全正确
+- 不要添加任何解释文字，只返回纯JSON`;
+
+    finalSystemContent = userSystemContent ?
+      `${userSystemContent}\n\n${jsonPrompt}` :
+      jsonPrompt;
+
+    logger.debug("检测到JSON格式请求，应用JSON专用提示词");
+  }
+
   const geminiRequest: GeminiRequest = {
     contents: contents
   };
 
-  // 如果存在系统指令则添加
-  if (systemInstruction) {
-    geminiRequest.systemInstruction = systemInstruction;
+  // 只有在有系统指令内容时才添加
+  if (finalSystemContent && finalSystemContent.trim()) {
+    geminiRequest.systemInstruction = {
+      role: "user",
+      parts: [{ text: finalSystemContent }]
+    };
   }
 
   // 转换工具
@@ -134,7 +169,22 @@ export function transformOpenAIRequestToGemini(
   }
 
   if (openaiRequest.max_tokens !== undefined) {
+    // 直接使用用户指定的值，不做任何调整
     geminiRequest.generationConfig.maxOutputTokens = openaiRequest.max_tokens;
+    logger.debug(`使用用户指定的 maxOutputTokens: ${openaiRequest.max_tokens}`);
+  } else {
+    // 未指定时使用最大值，不做任何限制
+    const isThinkingModel = openaiRequest.model.includes("2.5");
+
+    if (isThinkingModel) {
+      // 2.5 模型使用最大限制 (65536)
+      geminiRequest.generationConfig.maxOutputTokens = 65536;
+      logger.debug("2.5 模型设置最大 maxOutputTokens: 65536");
+    } else {
+      // 1.5 模型使用最大限制 (8192)
+      geminiRequest.generationConfig.maxOutputTokens = 8192;
+      logger.debug("1.5 模型设置最大 maxOutputTokens: 8192");
+    }
   }
 
   if (openaiRequest.stop) {
@@ -145,6 +195,29 @@ export function transformOpenAIRequestToGemini(
   // 处理响应格式
   if (openaiRequest.response_format?.type === "json_object") {
     geminiRequest.generationConfig.responseMimeType = "application/json";
+  }
+
+  // 处理 Gemini 2.5 思考模式配置
+  const isThinkingModel = openaiRequest.model.includes("2.5");
+  if (isThinkingModel) {
+    const enableThinking = (openaiRequest as OpenAIRequest & { enable_thinking?: boolean }).enable_thinking;
+
+    // 根据官方文档正确设置思考预算
+    if (enableThinking === true) {
+      // 明确启用思考模式
+      geminiRequest.generationConfig.thinkingConfig = {
+        includeThoughts: true
+        // 不设置 thinkingBudget，让模型自动决定
+      };
+      logger.info(`🧠 思考模式: 启用 (includeThoughts=true, thinkingBudget=auto)`);
+    } else {
+      // 默认或明确禁用思考模式 - 设置预算为0
+      geminiRequest.generationConfig.thinkingConfig = {
+        includeThoughts: false,
+        thinkingBudget: 0  // 0 = 完全禁用思考功能
+      };
+      logger.info(`🧠 思考模式: 禁用 (thinkingBudget=0)`);
+    }
   }
 
   return geminiRequest;

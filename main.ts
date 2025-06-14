@@ -209,6 +209,24 @@ async function handleChatCompletions(req: Request): Promise<Response> {
     logger.info(`[${requestId}]   - 最大Token: ${openaiRequest.max_tokens || '未设置'}`);
     logger.info(`[${requestId}]   - 温度: ${openaiRequest.temperature || '未设置'}`);
 
+    // 记录思考模式相关参数
+    const enableThinking = (openaiRequest as OpenAIRequest & { enable_thinking?: boolean }).enable_thinking;
+    logger.info(`[${requestId}]   - 思考模式: ${enableThinking === true ? '启用' : enableThinking === false ? '禁用' : '未设置'}`);
+
+    // 记录其他重要参数
+    if (openaiRequest.top_p !== undefined) {
+      logger.info(`[${requestId}]   - Top-P: ${openaiRequest.top_p}`);
+    }
+    if (openaiRequest.stop) {
+      logger.info(`[${requestId}]   - 停止序列: ${JSON.stringify(openaiRequest.stop)}`);
+    }
+    if (openaiRequest.response_format) {
+      logger.info(`[${requestId}]   - 响应格式: ${openaiRequest.response_format.type}`);
+    }
+    if (openaiRequest.tools && openaiRequest.tools.length > 0) {
+      logger.info(`[${requestId}]   - 工具数量: ${openaiRequest.tools.length}`);
+    }
+
     // 分析消息内容
     if (openaiRequest.messages) {
       for (let i = 0; i < openaiRequest.messages.length; i++) {
@@ -216,15 +234,15 @@ async function handleChatCompletions(req: Request): Promise<Response> {
         logger.info(`[${requestId}]   - 消息${i + 1}: ${msg.role}`);
 
         if (typeof msg.content === 'string') {
-          const preview = msg.content.length > 100 ? msg.content.slice(0, 100) + '...' : msg.content;
-          logger.info(`[${requestId}]     内容: "${preview}"`);
+          // 显示完整内容，不截断
+          logger.info(`[${requestId}]     完整内容: "${msg.content}"`);
         } else if (Array.isArray(msg.content)) {
           logger.info(`[${requestId}]     多模态内容: ${msg.content.length} 个部分`);
           for (let j = 0; j < msg.content.length; j++) {
             const part = msg.content[j];
             if (part.type === 'text') {
-              const preview = part.text && part.text.length > 50 ? part.text.slice(0, 50) + '...' : part.text;
-              logger.info(`[${requestId}]       ${j + 1}. 文本: "${preview}"`);
+              // 显示完整文本内容
+              logger.info(`[${requestId}]       ${j + 1}. 完整文本: "${part.text}"`);
             } else if (part.type === 'image_url') {
               const url = part.image_url?.url || '';
               if (url.startsWith('data:')) {
@@ -360,8 +378,20 @@ async function handleChatCompletions(req: Request): Promise<Response> {
       }
 
       const responseContent = openaiResponse.choices?.[0]?.message?.content || '';
-      const preview = responseContent.length > 100 ? responseContent.slice(0, 100) + '...' : responseContent;
-      logger.info(`[${requestId}] 💬 AI回复预览: "${preview}"`);
+      logger.info(`[${requestId}] 💬 AI完整回复: "${responseContent}"`);
+
+      // 分析响应结构（如果是思考模式）
+      if (typeof responseContent === 'string' && responseContent.includes('<think>') && responseContent.includes('</think>')) {
+        const thinkStart = responseContent.indexOf('<think>');
+        const thinkEnd = responseContent.indexOf('</think>') + 8;
+        const thinkingPart = responseContent.slice(thinkStart, thinkEnd);
+        const answerPart = responseContent.slice(thinkEnd).trim();
+
+        logger.info(`[${requestId}] 🧠 思考部分长度: ${thinkingPart.length} 字符`);
+        logger.info(`[${requestId}] 💭 回答部分长度: ${answerPart.length} 字符`);
+        logger.info(`[${requestId}] 🔍 思考内容: "${thinkingPart}"`);
+        logger.info(`[${requestId}] 📝 最终回答: "${answerPart}"`);
+      }
 
       return new Response(JSON.stringify(openaiResponse), {
         status: 200,
