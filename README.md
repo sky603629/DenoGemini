@@ -230,7 +230,7 @@ curl http://localhost:8000/stats
 
 #### Gemini 2.5 系列（支持思考模式）
 - `gemini-2.5-flash-preview-05-20` - 快速响应，支持思考
-- `gemini-2.5-pro-preview-05-20` - 高质量输出，支持思考
+- `gemini-2.5-pro-preview-06-05` - 高质量输出，支持思考
 
 #### Gemini 1.5 系列
 - `gemini-1.5-pro` - 高性能多模态模型
