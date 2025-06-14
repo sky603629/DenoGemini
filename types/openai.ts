@@ -1,7 +1,7 @@
 // OpenAI API Types
 export interface OpenAIMessage {
   role: "system" | "user" | "assistant" | "tool";
-  content: string | OpenAIContentPart[] | null;
+  content: string | OpenAIContentPart[]; // 移除 null，确保永远有值
   name?: string;
   tool_calls?: ToolCall[];
   tool_call_id?: string;
@@ -55,6 +55,8 @@ export interface OpenAIRequest {
   top_logprobs?: number;
   // Non-standard extensions (like SiliconFlow's reasoning)
   thinking_budget?: number;
+  // 思考模型控制参数
+  enable_thinking?: boolean;
 }
 
 export interface OpenAIResponse {

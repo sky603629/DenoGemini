@@ -202,9 +202,19 @@ export function transformOpenAIRequestToGemini(
   }
 
   if (openaiRequest.max_tokens !== undefined) {
-    // 直接使用用户指定的值，不做任何调整
-    geminiRequest.generationConfig.maxOutputTokens = openaiRequest.max_tokens;
-    logger.debug(`使用用户指定的 maxOutputTokens: ${openaiRequest.max_tokens}`);
+    let finalMaxTokens = openaiRequest.max_tokens;
+
+    // 为 JSON 请求完全忽略用户的 token 限制，使用最大值以保证服务正常
+    if (isJsonRequest) {
+      const isThinkingModel = openaiRequest.model.includes("2.5");
+      const maxTokens = isThinkingModel ? 65536 : 8192;
+
+      logger.warn(`JSON请求完全忽略用户设置的 max_tokens (${finalMaxTokens})，使用最大值 ${maxTokens} 以保证服务正常运行`);
+      finalMaxTokens = maxTokens;
+    }
+
+    geminiRequest.generationConfig.maxOutputTokens = finalMaxTokens;
+    logger.debug(`设置 maxOutputTokens: ${finalMaxTokens} (原始: ${openaiRequest.max_tokens}, JSON请求: ${isJsonRequest})`);
   } else {
     // 未指定时使用最大值，不做任何限制
     const isThinkingModel = openaiRequest.model.includes("2.5");
