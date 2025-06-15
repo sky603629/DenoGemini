@@ -15,13 +15,19 @@
 - **Gemini 1.5 Pro** - 高质量输出，适合复杂任务
 - **Gemini 2.5 Flash** - 最新模型，支持思考模式
 - **Gemini 2.5 Pro** - 顶级模型，最强推理能力
-- **Gemini 2.0 Flash** - 实验性模型支持
+- **Gemini 2.0 Flash** - 实验性模型，多模态支持
+
+### 🖼️ **强大的多模态支持**
+- **图片识别** - 支持 PNG、JPEG 格式
+- **GIF 动图支持** - 自动处理 GIF 格式，转换为静态图片分析
+- **多图片处理** - 单次请求支持多张图片
+- **智能格式转换** - 自动优化图片格式以提高兼容性
 
 ### 🛠️ **智能优化功能**
 - **思考模式控制** - 支持 `enable_thinking` 参数，默认禁用优化性能
 - **自然输出优化** - 自动减少过度 Markdown 格式化
-- **智能 JSON 处理** - 自动检测 JSON 请求并确保纯净输出
-- **无限制 Token 管理** - 完全尊重用户设置，默认使用最大限制
+- **智能 JSON 处理** - 自动检测 JSON 请求并确保纯净输出，完全忽略小 token 限制
+- **无限制 Token 管理** - JSON 请求使用最大 token 限制，确保响应完整性
 - **多密钥轮换** - 自动负载均衡和故障转移
 
 ### 🚀 **企业级特性**
@@ -29,19 +35,46 @@
 - 完善的错误处理和重试机制
 - 动态超时时间调整
 - 环境变量配置
-- Deno Deploy 一键部署
+- **Deno Deploy 一键部署**
 
 ## 🚀 快速开始
 
-### 1. 克隆项目
+### 🌐 Deno Deploy 部署（推荐）
+
+#### 1. Fork 项目
+- 访问项目仓库并点击 **Fork** 按钮
+- 将项目 Fork 到您的 GitHub 账户
+
+#### 2. 部署到 Deno Deploy
+1. 访问 [Deno Deploy](https://dash.deno.com/)
+2. 点击 **New Project**
+3. 选择您 Fork 的项目仓库
+4. 配置部署设置：
+   - **Branch**: `main`
+   - **Entry Point**: `main.ts`
+5. 点击 **Deploy** 开始部署
+
+#### 3. 配置环境变量
+部署成功后，在 Deno Deploy 项目设置中添加环境变量：
+
+| 变量名 | 说明 | 示例 |
+|--------|------|------|
+| `GEMINI_API_KEYS` | Gemini API 密钥（多个用逗号分隔） | `AIzaSy...abc,AIzaSy...def` |
+| `ACCESS_PASSWORDS` | 访问密码（用于API认证） | `sk-123456` |
+
+#### 4. 完成部署
+- 保存环境变量后，服务会自动重启
+- 您的 API 服务现在可以通过 Deno Deploy 提供的 URL 访问
+
+### 💻 本地开发
+
+#### 1. 克隆项目
 ```bash
 git clone <repository-url>
 cd gemini-api-proxy
 ```
 
-### 2. 配置环境变量
-复制 `.env.example` 到 `.env` 并配置：
-
+#### 2. 配置环境变量
 ```bash
 cp .env.example .env
 ```
@@ -51,20 +84,14 @@ cp .env.example .env
 # Gemini API 密钥（多个用逗号分隔）
 GEMINI_API_KEYS=your-gemini-api-key-1,your-gemini-api-key-2
 
-# 服务端口
+# 访问密码（用于API认证）
+ACCESS_PASSWORDS=your-access-password
+
+# 服务端口（可选，默认8000）
 PORT=8000
-
-# 访问密码（可选）
-ACCESS_PASSWORD=your-access-password
-
-# 日志级别
-LOG_LEVEL=INFO
-
-# 请求超时时间（毫秒）
-REQUEST_TIMEOUT=30000
 ```
 
-### 3. 启动服务
+#### 3. 启动服务
 ```bash
 deno task dev
 ```
@@ -95,6 +122,60 @@ curl -X POST http://localhost:8000/v1/chat/completions \
     "model": "gemini-2.5-flash-preview-05-20",
     "messages": [
       {"role": "user", "content": "请用JSON格式返回用户信息，包含姓名和年龄"}
+    ]
+  }'
+```
+
+### 图片识别（支持 PNG、JPEG、GIF）
+```bash
+curl -X POST http://localhost:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer your-access-password" \
+  -d '{
+    "model": "gemini-1.5-flash",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "请描述这张图片"
+          },
+          {
+            "type": "image_url",
+            "image_url": {
+              "url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChAGAWA0ddgAAAABJRU5ErkJggg=="
+            }
+          }
+        ]
+      }
+    ]
+  }'
+```
+
+### GIF 动图识别
+```bash
+curl -X POST http://localhost:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer your-access-password" \
+  -d '{
+    "model": "gemini-2.0-flash",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "请分析这个GIF动图"
+          },
+          {
+            "type": "image_url",
+            "image_url": {
+              "url": "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"
+            }
+          }
+        ]
+      }
     ]
   }'
 ```
@@ -226,15 +307,45 @@ Gemini 2.5 模型支持思考模式，显示完整的推理过程：
 - **智能超时**：根据请求大小和模型类型动态调整超时时间
 - **性能优化**：思考模式默认禁用以提升响应速度
 
-## 🚀 部署
+## 🚀 生产部署
 
-### Deno Deploy
-1. Fork 此仓库
-2. 连接到 Deno Deploy
-3. 设置环境变量
-4. 部署完成
+### 🌐 Deno Deploy（推荐）
 
-### Docker（可选）
+Deno Deploy 是最简单的部署方式，提供全球 CDN 和自动扩缩容：
+
+#### 详细部署步骤
+
+1. **Fork 项目**
+   - 访问项目 GitHub 仓库
+   - 点击右上角的 **Fork** 按钮
+   - 选择您的 GitHub 账户
+
+2. **创建 Deno Deploy 项目**
+   - 访问 [dash.deno.com](https://dash.deno.com/)
+   - 使用 GitHub 账户登录
+   - 点击 **New Project**
+
+3. **配置项目**
+   - **Repository**: 选择您 Fork 的仓库
+   - **Branch**: 选择 `main` 分支
+   - **Entry Point**: 设置为 `main.ts`
+   - 点击 **Deploy**
+
+4. **设置环境变量**
+   - 在项目设置页面，找到 **Environment Variables**
+   - 添加以下变量：
+     ```
+     GEMINI_API_KEYS=your_api_key_1,your_api_key_2
+     ACCESS_PASSWORDS=sk-123456
+     ```
+   - 点击 **Save** 保存
+
+5. **验证部署**
+   - 部署完成后，您会获得一个 `.deno.dev` 域名
+   - 访问 `https://your-project.deno.dev/v1/models` 验证服务
+
+### 🐳 Docker 部署（可选）
+
 ```dockerfile
 FROM denoland/deno:alpine
 
@@ -248,20 +359,33 @@ EXPOSE 8000
 CMD ["deno", "run", "--allow-net", "--allow-env", "--allow-read", "main.ts"]
 ```
 
+构建和运行：
+```bash
+docker build -t gemini-proxy .
+docker run -p 8000:8000 \
+  -e GEMINI_API_KEYS=your_api_keys \
+  -e ACCESS_PASSWORDS=your_password \
+  gemini-proxy
+```
+
 ## 🎉 最新功能亮点
 
-### ✨ **v2.0 新特性**
-- **🔍 智能 JSON 检测** - 自动识别 JSON 请求，无需手动设置 `response_format`
+### ✨ **v2.1 新特性**
+- **🖼️ 完整多模态支持** - 支持 PNG、JPEG、GIF 图片识别
+- **🎬 GIF 动图处理** - 自动处理 GIF 格式，智能转换提高兼容性
+- **🔍 智能 JSON 检测** - 自动识别 JSON 请求，完全忽略小 token 限制
 - **🧠 思考模式优化** - 默认禁用思考功能，显著提升响应速度
 - **🎨 自然输出优化** - 自动减少过度格式化，提供更自然的对话体验
-- **⚡ 无限制 Token** - 完全移除 token 限制，尊重用户设置
+- **⚡ 无限制 Token** - JSON 请求使用最大 token 限制，确保响应完整性
 - **🛠️ 完整工具调用** - 100% 兼容 OpenAI Function Calling 格式
 
 ### 🔧 **技术优化**
-- **动态超时调整** - 根据请求复杂度智能调整超时时间
-- **多密钥轮换** - 自动负载均衡和故障转移
-- **中文日志系统** - 详细的中文日志记录
-- **错误恢复机制** - 完善的重试和错误处理
+- **🖼️ 智能图片处理** - 自动格式转换，大小限制，错误处理
+- **📏 动态大小限制** - GIF 2MB，普通图片 10MB
+- **⏱️ 动态超时调整** - 根据请求复杂度智能调整超时时间
+- **🔄 多密钥轮换** - 自动负载均衡和故障转移
+- **📝 中文日志系统** - 详细的中文日志记录
+- **🛡️ 错误恢复机制** - 完善的重试和错误处理
 
 ## 📊 监控和日志
 

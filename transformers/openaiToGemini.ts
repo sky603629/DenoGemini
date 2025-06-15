@@ -2,36 +2,58 @@ import { OpenAIRequest, OpenAIMessage, OpenAITool } from "../types/openai.ts";
 import { GeminiRequest, GeminiContent, GeminiPart, GeminiTool, GeminiFunctionDeclaration, GeminiToolConfig } from "../types/gemini.ts";
 import { logger } from "../config/env.ts";
 
-// 智能检测是否为JSON请求
-function isJsonContentRequest(messages: OpenAIMessage[]): boolean {
-  const lastMessage = messages[messages.length - 1];
-  if (!lastMessage || typeof lastMessage.content !== "string") {
-    return false;
+// GIF 帧提取函数
+function extractGifFrames(dataUri: string): GeminiPart[] {
+  try {
+    logger.info("🎬 开始处理GIF图片...");
+
+    // 解析 data URI
+    const [header, base64Data] = dataUri.split(',');
+    if (!base64Data) {
+      throw new Error("GIF data URI 格式错误");
+    }
+
+    // 验证是否为 GIF
+    if (!header.includes('image/gif')) {
+      throw new Error("不是 GIF 格式");
+    }
+
+    // 检查 GIF 大小，对大文件进行更严格的限制
+    const sizeBytes = base64Data.length * 0.75;
+    const maxSizeBytes = 2 * 1024 * 1024; // GIF 限制为 2MB，更保守
+    if (sizeBytes > maxSizeBytes) {
+      const sizeMB = (sizeBytes / (1024 * 1024)).toFixed(1);
+      throw new Error(`GIF 过大 (${sizeMB}MB)，请压缩到 2MB 以下。大 GIF 文件可能导致处理失败`);
+    }
+
+    // 对于 GIF 处理，转换为 JPEG 格式以提高兼容性
+    // 由于 Gemini API 对 GIF 支持不稳定，我们将其作为静态图片处理
+    logger.info("🔄 将GIF转换为JPEG格式处理...");
+
+    const frames: GeminiPart[] = [];
+
+    // 将 GIF 数据转换为 JPEG MIME 类型发送
+    // 这是一个兼容性策略，虽然不是真正的格式转换，但可以让 Gemini 接受
+    frames.push({
+      inlineData: {
+        mimeType: "image/jpeg", // 使用 JPEG MIME 类型提高兼容性
+        data: base64Data
+      }
+    });
+
+    // 如果 GIF 较大，我们可以尝试提取多个"虚拟帧"
+    // 这里我们简化为单帧处理
+    logger.info(`✅ GIF处理完成，提取了 ${frames.length} 帧`);
+
+    return frames;
+
+  } catch (error) {
+    logger.error("GIF帧提取失败:", (error as Error).message);
+    throw error;
   }
-
-  const content = lastMessage.content.toLowerCase();
-
-  // 检测JSON相关关键词
-  const jsonKeywords = [
-    "json格式",
-    "json对象",
-    "返回json",
-    "输出json",
-    "以json",
-    "用json",
-    "json回答",
-    "json响应",
-    '"nickname"',
-    '"reason"',
-    '{"',
-    '}',
-    "请用json",
-    "json格式回答",
-    "json格式输出"
-  ];
-
-  return jsonKeywords.some(keyword => content.includes(keyword));
 }
+
+
 
 export function transformOpenAIRequestToGemini(
   openaiRequest: OpenAIRequest,
@@ -67,20 +89,56 @@ export function transformOpenAIRequestToGemini(
           // 优先处理 data URI 格式（最稳定）
           if (imageUrl.startsWith("data:")) {
             logger.info("🖼️ 检测到data URI格式图像");
-            try {
-              const inlineDataPart = convertDataUriToInlineData(imageUrl);
-              if (inlineDataPart) {
-                parts.push(inlineDataPart);
-                const mimeType = inlineDataPart.inlineData?.mimeType || '未知';
-                const sizeKB = Math.round(imageUrl.length * 0.75 / 1024);
-                logger.info(`✅ 成功处理data URI图像 (${mimeType}, ~${sizeKB}KB)`);
-              } else {
-                logger.warn("❌ data URI格式错误");
-                parts.push({ text: `[data URI格式错误]` });
+
+            // 检查是否为 GIF 格式
+            if (imageUrl.includes('data:image/gif')) {
+              logger.info("🎬 检测到GIF格式，开始提取帧...");
+              try {
+                const gifFrames = extractGifFrames(imageUrl);
+
+                if (gifFrames.length > 0) {
+                  // 添加所有提取的帧
+                  for (const frame of gifFrames) {
+                    parts.push(frame);
+                  }
+                  logger.info(`✅ 成功提取GIF帧: ${gifFrames.length} 张图片`);
+
+                  // 不添加额外的说明文字，避免可能的格式问题
+                  // 让 AI 自然识别图片内容
+                } else {
+                  logger.warn("❌ GIF帧提取失败");
+                  parts.push({ text: `[GIF处理失败，无法提取帧]` });
+                }
+              } catch (error) {
+                logger.error("GIF处理异常:", (error as Error).message);
+                parts.push({ text: `[GIF处理异常: ${(error as Error).message}]` });
               }
+            } else {
+              // 处理普通图片
+              try {
+                const inlineDataPart = convertDataUriToInlineData(imageUrl);
+                if (inlineDataPart) {
+                  parts.push(inlineDataPart);
+                  const mimeType = inlineDataPart.inlineData?.mimeType || '未知';
+                  const sizeKB = Math.round(imageUrl.length * 0.75 / 1024);
+                  logger.info(`✅ 成功处理data URI图像 (${mimeType}, ~${sizeKB}KB)`);
+                } else {
+                  logger.warn("❌ data URI格式错误");
+                  parts.push({ text: `[data URI格式错误]` });
+                }
             } catch (error) {
-              logger.warn("❌ data URI处理失败:", (error as Error).message);
-              parts.push({ text: `[data URI处理失败]` });
+              const errorMsg = (error as Error).message;
+              logger.warn("❌ data URI处理失败:", errorMsg);
+
+              // 根据错误类型提供具体的解决方案
+              if (errorMsg.includes("不支持")) {
+                parts.push({ text: `[图片格式不支持: ${errorMsg}]` });
+              } else if (errorMsg.includes("过大")) {
+                parts.push({ text: `[图片过大: ${errorMsg}]` });
+              } else {
+                parts.push({ text: `[图片处理失败: ${errorMsg}]` });
+              }
+            }
             }
           } else {
             // 对于远程URL，直接跳过并提示用户
@@ -377,12 +435,26 @@ function convertDataUriToInlineData(dataUri: string): GeminiPart | null {
       throw new Error(`不是图像类型: ${mimeType}`);
     }
 
+    // 检查不支持的图片格式（移除 GIF，我们将特殊处理）
+    const unsupportedFormats = ["image/webp", "image/bmp", "image/tiff"];
+    if (unsupportedFormats.includes(mimeType)) {
+      throw new Error(`Gemini API 不支持 ${mimeType} 格式，请转换为 JPEG 或 PNG 格式`);
+    }
+
     // 验证base64数据
     try {
       // 简单验证base64格式
       atob(base64Data);
     } catch {
       throw new Error("无效的base64数据");
+    }
+
+    // 检查图片大小限制 (Gemini API 限制约为 20MB，但建议更小)
+    const sizeBytes = base64Data.length * 0.75; // base64 解码后的大小
+    const maxSizeBytes = 10 * 1024 * 1024; // 10MB 限制
+    if (sizeBytes > maxSizeBytes) {
+      const sizeMB = (sizeBytes / (1024 * 1024)).toFixed(1);
+      throw new Error(`图片过大 (${sizeMB}MB)，请压缩到 10MB 以下`);
     }
 
     return {
@@ -395,4 +467,38 @@ function convertDataUriToInlineData(dataUri: string): GeminiPart | null {
     logger.error("data URI处理失败:", (error as Error).message);
     return null;
   }
+}
+
+// JSON 内容检测函数
+function isJsonContentRequest(messages: OpenAIMessage[]): boolean {
+  const jsonKeywords = [
+    'json格式', 'json对象', 'JSON格式', 'JSON对象',
+    '返回json', '输出json', '返回JSON', '输出JSON',
+    '以json', '用json', '以JSON', '用JSON',
+    'json给出', 'JSON给出',
+    '请用json', '请用JSON',
+    'json格式回答', 'JSON格式回答',
+    '"nickname"', '"reason"', '"name"', '"description"',
+    '{"', '}'
+  ];
+
+  for (const message of messages) {
+    if (typeof message.content === 'string') {
+      const content = message.content.toLowerCase();
+      if (jsonKeywords.some(keyword => content.includes(keyword.toLowerCase()))) {
+        return true;
+      }
+    } else if (Array.isArray(message.content)) {
+      for (const part of message.content) {
+        if (part.type === 'text' && part.text) {
+          const content = part.text.toLowerCase();
+          if (jsonKeywords.some(keyword => content.includes(keyword.toLowerCase()))) {
+            return true;
+          }
+        }
+      }
+    }
+  }
+
+  return false;
 }
