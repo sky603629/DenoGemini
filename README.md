@@ -85,22 +85,16 @@ cp .env.example .env
 GEMINI_API_KEYS=your-gemini-api-key-1,your-gemini-api-key-2
 
 # 访问密码（用于API认证）
-ACCESS_PASSWORDS=your-access-password
+ACCESS_KEY=your-access-password
 
 # 服务端口（可选，默认8000）
 PORT=8000
-<<<<<<< HEAD
-=======
-
-# 访问密码（可选）
-ACCESS_KEY=your-access-password
 
 # 日志级别
 LOG_LEVEL=INFO
 
 # 请求超时时间（毫秒）
 REQUEST_TIMEOUT=30000
->>>>>>> 2e0ad827a7e1bda69aa8cc23d8174cc489df06b8
 ```
 
 #### 3. 启动服务
