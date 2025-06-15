@@ -55,7 +55,7 @@ GEMINI_API_KEYS=your-gemini-api-key-1,your-gemini-api-key-2
 PORT=8000
 
 # 访问密码（可选）
-ACCESS_PASSWORD=your-access-password
+ACCESS_KEY=your-access-password
 
 # 日志级别
 LOG_LEVEL=INFO
