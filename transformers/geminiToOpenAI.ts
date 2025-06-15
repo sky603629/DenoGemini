@@ -2,6 +2,63 @@ import { OpenAIResponse, OpenAIChoice, OpenAIMessage, ToolCall, OpenAIUsage, Ope
 import { GeminiResponse, GeminiCandidate, GeminiPart } from "../types/gemini.ts";
 import { logger } from "../config/env.ts";
 
+// JSON 响应清理函数
+function cleanJsonResponse(content: string): string {
+  if (!content || typeof content !== 'string') {
+    return content;
+  }
+
+  // 检查是否可能是 JSON 响应
+  const trimmed = content.trim();
+
+  // 如果内容看起来像 JSON（包含 { 和 }）
+  if (trimmed.includes('{') && trimmed.includes('}')) {
+    try {
+      // 尝试清理常见的 JSON 格式问题
+      let cleaned = trimmed;
+
+      // 移除开头和结尾的多余引号
+      if (cleaned.startsWith('"') && cleaned.endsWith('"')) {
+        cleaned = cleaned.slice(1, -1);
+      }
+
+      // 修复开头的逗号问题
+      cleaned = cleaned.replace(/^{\s*,/, '{');
+
+      // 修复结尾的逗号问题
+      cleaned = cleaned.replace(/,\s*}$/, '}');
+
+      // 修复属性名缺少引号的问题
+      cleaned = cleaned.replace(/(\w+):/g, '"$1":');
+
+      // 修复值缺少引号的问题（但不影响数字和布尔值）
+      cleaned = cleaned.replace(/:\s*([^",\{\}\[\]]+)(?=\s*[,\}])/g, (_match, value) => {
+        const trimmedValue = value.trim();
+        // 如果是数字、布尔值或 null，不加引号
+        if (/^(true|false|null|\d+(\.\d+)?)$/.test(trimmedValue)) {
+          return `: ${trimmedValue}`;
+        }
+        // 否则加引号
+        return `: "${trimmedValue}"`;
+      });
+
+      // 验证 JSON 格式
+      JSON.parse(cleaned);
+
+      logger.debug(`JSON 格式清理成功: ${content.length} -> ${cleaned.length} 字符`);
+      return cleaned;
+
+    } catch (error) {
+      logger.warn(`JSON 格式清理失败: ${(error as Error).message}`);
+      logger.debug(`原始内容: "${content}"`);
+      // 如果清理失败，返回原始内容
+      return content;
+    }
+  }
+
+  return content;
+}
+
 export function transformGeminiResponseToOpenAI(
   geminiResponse: GeminiResponse,
   openaiRequest: OpenAIRequest,
@@ -79,6 +136,9 @@ function transformCandidateToChoice(candidate: GeminiCandidate, index: number, g
     finalContent = `<think>\n${thinkingContent}\n</think>\n\n${combinedContent}`;
   }
 
+  // JSON 格式清理和验证
+  finalContent = cleanJsonResponse(finalContent);
+
   // 检查是否为思考模型（包含思考内容或 <think> 标签）
   const isThinkingModel = thinkingContent.trim() || finalContent.includes('<think>') || finalContent.includes('</think>');
 
@@ -132,7 +192,7 @@ function transformCandidateToChoice(candidate: GeminiCandidate, index: number, g
 
   const message: OpenAIMessage = {
     role: "assistant",
-    content: toolCalls.length > 0 ? null : finalContent,
+    content: toolCalls.length > 0 ? "" : finalContent,
   };
 
   if (toolCalls.length > 0) {

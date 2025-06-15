@@ -217,7 +217,10 @@ export function transformOpenAIRequestToGemini(
 - 属性名用双引号包围
 - 不要有多余的引号或转义字符
 - 确保JSON语法完全正确
-- 不要添加任何解释文字，只返回纯JSON`;
+- 不要添加任何解释文字，只返回纯JSON
+- JSON对象不要用引号包围整体
+- 确保开头是 { 结尾是 }
+- 不要在JSON前后添加额外的引号或字符`;
 
     // 添加内容长度控制提示
     if (openaiRequest.max_tokens !== undefined && openaiRequest.max_tokens <= 1000) {
@@ -471,29 +474,116 @@ function convertDataUriToInlineData(dataUri: string): GeminiPart | null {
 
 // JSON 内容检测函数
 function isJsonContentRequest(messages: OpenAIMessage[]): boolean {
-  const jsonKeywords = [
+  // 明确要求 JSON 格式的关键词
+  const jsonFormatKeywords = [
     'json格式', 'json对象', 'JSON格式', 'JSON对象',
     '返回json', '输出json', '返回JSON', '输出JSON',
-    '以json', '用json', '以JSON', '用JSON',
-    'json给出', 'JSON给出',
-    '请用json', '请用JSON',
+    '请用json', '请用JSON', '用json', '用JSON',
     'json格式回答', 'JSON格式回答',
-    '"nickname"', '"reason"', '"name"', '"description"',
-    '{"', '}'
+    'json格式输出', 'JSON格式输出',
+    'json回复', 'JSON回复',
+    'json响应', 'JSON响应',
+    'json结果', 'JSON结果',
+    'json数据', 'JSON数据',
+    'json形式', 'JSON形式',
+    'json方式', 'JSON方式'
+  ];
+
+  // JSON 请求的常见模式
+  const jsonRequestPatterns = [
+    /请.*用.*json.*格式/i,
+    /请.*返回.*json/i,
+    /输出.*json.*格式/i,
+    /json.*格式.*返回/i,
+    /以.*json.*格式/i,
+    /转换.*json/i,
+    /生成.*json/i,
+    /创建.*json/i,
+    /提供.*json/i,
+    /给出.*json/i,
+    /json.*示例/i,
+    /json.*模板/i,
+    /json.*结构/i
+  ];
+
+  // JSON 示例模式（更精确的检测）
+  const jsonExamplePatterns = [
+    /示例.*\{.*".*".*:.*".*".*\}/,  // 示例：{"key": "value"}
+    /例如.*\{.*".*".*:.*".*".*\}/,  // 例如：{"key": "value"}
+    /格式.*\{.*".*".*:.*".*".*\}/,  // 格式：{"key": "value"}
+    /如下.*\{.*".*".*:.*".*".*\}/,  // 如下：{"key": "value"}
+    /类似.*\{.*".*".*:.*".*".*\}/   // 类似：{"key": "value"}
+  ];
+
+  // 特定字段的 JSON 请求
+  const jsonFieldPatterns = [
+    /"name".*:.*".*"/i,
+    /"nickname".*:.*".*"/i,
+    /"reason".*:.*".*"/i,
+    /"description".*:.*".*"/i,
+    /"title".*:.*".*"/i,
+    /"content".*:.*".*"/i,
+    /"response".*:.*".*"/i,
+    /"result".*:.*".*"/i
   ];
 
   for (const message of messages) {
     if (typeof message.content === 'string') {
-      const content = message.content.toLowerCase();
-      if (jsonKeywords.some(keyword => content.includes(keyword.toLowerCase()))) {
+      const content = message.content;
+
+      // 检查明确的 JSON 关键词
+      if (jsonFormatKeywords.some(keyword => content.toLowerCase().includes(keyword.toLowerCase()))) {
         return true;
+      }
+
+      // 检查 JSON 请求模式
+      if (jsonRequestPatterns.some(pattern => pattern.test(content))) {
+        return true;
+      }
+
+      // 检查 JSON 示例模式
+      if (jsonExamplePatterns.some(pattern => pattern.test(content))) {
+        return true;
+      }
+
+      // 检查特定字段的 JSON 模式（但要排除纯分析场景）
+      if (jsonFieldPatterns.some(pattern => pattern.test(content))) {
+        // 额外检查：确保不是在分析别人的 JSON，而是要求生成 JSON
+        const analysisKeywords = ['分析', '解析', '理解', '说明', '解释'];
+        const isAnalysis = analysisKeywords.some(keyword => content.includes(keyword));
+
+        if (!isAnalysis) {
+          return true;
+        }
       }
     } else if (Array.isArray(message.content)) {
       for (const part of message.content) {
         if (part.type === 'text' && part.text) {
-          const content = part.text.toLowerCase();
-          if (jsonKeywords.some(keyword => content.includes(keyword.toLowerCase()))) {
+          const content = part.text;
+
+          // 检查明确的 JSON 关键词
+          if (jsonFormatKeywords.some(keyword => content.toLowerCase().includes(keyword.toLowerCase()))) {
             return true;
+          }
+
+          // 检查 JSON 请求模式
+          if (jsonRequestPatterns.some(pattern => pattern.test(content))) {
+            return true;
+          }
+
+          // 检查 JSON 示例模式
+          if (jsonExamplePatterns.some(pattern => pattern.test(content))) {
+            return true;
+          }
+
+          // 检查特定字段的 JSON 模式
+          if (jsonFieldPatterns.some(pattern => pattern.test(content))) {
+            const analysisKeywords = ['分析', '解析', '理解', '说明', '解释'];
+            const isAnalysis = analysisKeywords.some(keyword => content.includes(keyword));
+
+            if (!isAnalysis) {
+              return true;
+            }
           }
         }
       }
