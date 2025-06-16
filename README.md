@@ -60,7 +60,7 @@
 | 变量名 | 说明 | 示例 |
 |--------|------|------|
 | `GEMINI_API_KEYS` | Gemini API 密钥（多个用逗号分隔） | `AIzaSy...abc,AIzaSy...def` |
-| `ACCESS_PASSWORDS` | 访问密码（用于API认证） | `sk-123456` |
+| `ACCESS_KEY` | 访问密码（用于API认证） | `your_password` |
 
 #### 4. 完成部署
 - 保存环境变量后，服务会自动重启
